@@ -1,0 +1,23 @@
+name: kvs
+args:
+  - version:
+      short: V
+subcommands:
+  - get:
+      args:
+        - KEY:
+            index: 1
+            required: true
+  - set:
+      args:
+        - KEY:
+            index: 1
+            required: true
+        - VALUE:
+            index: 2
+            required: true
+  - rm:
+      args:
+        - KEY:
+            index: 1
+            required: true
