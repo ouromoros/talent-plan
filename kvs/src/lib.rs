@@ -2,9 +2,22 @@
 
 //! A simple key-value store that supports get, set and remove operations
 
+
+#[macro_use] extern crate failure_derive;
+
 use std::collections::HashMap;
 use std::result;
 use std::path;
+/// Errors
+#[derive(Fail, Debug)]
+pub enum KvsError {
+    /// Dummy error
+    #[fail(display = "Kvs Error")]
+    Dummy,
+}
+
+/// Kvs Result
+pub type Result<T> = result::Result<T, KvsError>;
 
 /// Implementation of key-value store
 pub struct KvStore {
@@ -64,11 +77,3 @@ impl KvStore {
         Ok(())
     }
 }
-
-/// Errors
-#[derive(Debug)]
-pub enum KvsError {
-}
-
-/// Kvs Result
-pub type Result<T> = result::Result<T, KvsError>;
