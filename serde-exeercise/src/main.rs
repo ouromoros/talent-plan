@@ -1,13 +1,14 @@
 use bson::Document;
 use serde::{Deserialize, Serialize};
-use std::{fs::File};
+use std::{fs::File, io::Cursor};
 #[derive(Debug, Serialize, Deserialize)]
 struct Move {
     x: i32,
     y: i32,
 }
 fn main() {
-    bson_1000_file()
+    bson_1000_vec();
+    println!("success");
 }
 
 fn json_exercise() {
@@ -49,6 +50,26 @@ fn bson_1000_file() {
         let mut file = File::open("temp_data").unwrap();
         for i in 1..1001 {
             let d = bson::Document::from_reader(&mut file).unwrap();
+            let b: Move = bson::from_bson(bson::Bson::Document(d)).unwrap();
+            assert_eq!(b.x, i);
+            assert_eq!(b.y, i);
+        }
+    } 
+}
+
+fn bson_1000_vec() {
+    let mut v: Vec<u8> = Vec::new();
+    {
+        let mut c = Cursor::new(&mut v);
+        for i in 1..1001 {
+            let a = Move { x: i, y: i };
+            bson::to_document(&a).unwrap().to_writer(&mut c).unwrap();
+        }
+    }
+    {
+        let mut c = Cursor::new(&mut v);
+        for i in 1..1001 {
+            let d = bson::Document::from_reader(&mut c).unwrap();
             let b: Move = bson::from_bson(bson::Bson::Document(d)).unwrap();
             assert_eq!(b.x, i);
             assert_eq!(b.y, i);
