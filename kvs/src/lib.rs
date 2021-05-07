@@ -3,6 +3,8 @@
 //! A simple key-value store that supports get, set and remove operations
 
 use std::collections::HashMap;
+use std::result;
+use std::path;
 
 /// Implementation of key-value store
 pub struct KvStore {
@@ -17,6 +19,11 @@ impl KvStore {
 }
 
 impl KvStore {
+    /// Open a new KvStore
+    pub fn open(path: &path::Path) -> Result<KvStore> {
+        panic!("not implemented");
+    }
+
     /// Set the value of a key, overrides the original value if the key is already present.
     /// ```rust
     /// use kvs::KvStore;
@@ -25,8 +32,9 @@ impl KvStore {
     /// let v = s.get("a".to_owned()).unwrap();
     /// assert_eq!(v, "x");
     /// ```
-    pub fn set(&mut self, k: String, v: String) {
+    pub fn set(&mut self, k: String, v: String) -> Result<()> {
         self.hm.insert(k, v);
+        Ok(())
     }
 
     /// Get the value of a key if present
@@ -37,9 +45,8 @@ impl KvStore {
     /// let v = s.get("a".to_owned()).unwrap();
     /// assert_eq!(v, "x");
     /// ```
-    pub fn get(&self, k: String) -> Option<String> {
-        let v = self.hm.get(&k)?;
-        Some(v.to_owned())
+    pub fn get(&self, k: String) -> Result<Option<String>> {
+        panic!("not implemented")
     }
 
     /// Remove a key if present
@@ -52,7 +59,16 @@ impl KvStore {
     /// s.remove("a".to_owned());
     /// assert_eq!(s.get("a".to_owned()), None);
     /// ```
-    pub fn remove(&mut self, k: String) {
+    pub fn remove(&mut self, k: String) -> Result<()> {
         self.hm.remove(&k);
+        Ok(())
     }
 }
+
+/// Errors
+#[derive(Debug)]
+pub enum KvsError {
+}
+
+/// Kvs Result
+pub type Result<T> = result::Result<T, KvsError>;
