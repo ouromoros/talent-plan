@@ -2,12 +2,14 @@
 extern crate clap;
 use clap::App;
 
-fn exit(code: i32, msg: &str) {
+use kvs::Result;
+
+fn exit(code: i32, msg: &str) -> Result<()> {
     eprintln!("{}", msg);
     std::process::exit(code);
 }
 
-fn main() {
+fn main() -> Result<()> {
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml)
         .version(env!("CARGO_PKG_VERSION"))
@@ -18,14 +20,39 @@ fn main() {
 
     if matches.is_present("version") {
         println!("{}", env!("CARGO_PKG_VERSION"));
-        return;
+        return Ok(());
     }
 
     match matches.subcommand_name() {
-        Some("get") => exit(1, "unimplemented"),
-        Some("set") => exit(1, "unimplemented"),
-        Some("rm") => exit(1, "unimplemented"),
+        Some("get") => {
+            let matches = matches.subcommand_matches("get").unwrap();
+            let key = matches.value_of("KEY").unwrap();
+            get(key.to_owned())
+        }
+        Some("set") => {
+            let matches = matches.subcommand_matches("set").unwrap();
+            let key = matches.value_of("KEY").unwrap();
+            let value = matches.value_of("VALUE").unwrap();
+            set(key.to_owned(), value.to_owned())
+        },
+        Some("rm") => {
+            let matches = matches.subcommand_matches("set").unwrap();
+            let key = matches.value_of("KEY").unwrap();
+            rm(key.to_owned())
+        },
         None => exit(2, "subcommand not provided"),
         _ => exit(3, "unsupported command"),
     }
+}
+
+fn get(k: String) -> Result<()> {
+
+}
+
+fn set(k: String, v: String) -> Result<()> {
+
+}
+
+fn rm(k: String) -> Result<()> {
+
 }
