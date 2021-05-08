@@ -208,8 +208,8 @@ impl KvStore {
             match c {
                 Command::Set{ ref k, .. } => {
                     if let Some(offset) = self.index.get(k) {
-                        eprintln!("{:?} {:?} {:?}", c, offset, current_offset);
                         if *offset == current_offset {
+                            eprintln!("{:?} {:?} {:?}", c, offset, current_offset);
                             write_command(&c, &mut new_log_writer)?;
                         }
                     }
