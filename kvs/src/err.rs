@@ -3,6 +3,8 @@
 pub enum KvsError {
     #[fail(display = "KeyNotExist Error")]
     KeyNotExist,
+    #[fail(display = "DataCurruption Error")]
+    DataCurruption,
     #[fail(display = "{}", _0)]
     Io(#[cause] std::io::Error),
     #[fail(display = "{}", _0)]
