@@ -36,7 +36,7 @@ fn main() -> Result<()> {
             set(key.to_owned(), value.to_owned())
         },
         Some("rm") => {
-            let matches = matches.subcommand_matches("set").unwrap();
+            let matches = matches.subcommand_matches("rm").unwrap();
             let key = matches.value_of("KEY").unwrap();
             rm(key.to_owned())
         },
@@ -46,13 +46,29 @@ fn main() -> Result<()> {
 }
 
 fn get(k: String) -> Result<()> {
-
+    let mut store = kvs::KvStore::open(&std::env::current_dir()?)?;
+    let result = store.get(k)?;
+    match result {
+        Some(v) => println!("{}", v),
+        None => println!("Key not found"),
+    }
+    Ok(())
 }
 
 fn set(k: String, v: String) -> Result<()> {
-
+    let mut store = kvs::KvStore::open(&std::env::current_dir()?)?;
+    store.set(k, v)
 }
 
 fn rm(k: String) -> Result<()> {
-
+    let mut store = kvs::KvStore::open(&std::env::current_dir()?)?;
+    let result = store.remove(k);
+    match result {
+        Ok(_) => Ok(()),
+        Err(kvs::KvsError::KeyNotExist) => {
+            println!("Key not found");
+            Err(kvs::KvsError::KeyNotExist)
+        }
+        Err(e) => Err(e)
+    }
 }

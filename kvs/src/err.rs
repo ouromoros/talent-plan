@@ -1,14 +1,19 @@
 /// Errors
 #[derive(Fail, Debug)]
 pub enum KvsError {
+    /// Key not exsit error
     #[fail(display = "KeyNotExist Error")]
     KeyNotExist,
+    /// File data is corrupted
     #[fail(display = "DataCurruption Error")]
     DataCurruption,
+    /// Io error
     #[fail(display = "{}", _0)]
     Io(#[cause] std::io::Error),
+    /// Bson serialization error
     #[fail(display = "{}", _0)]
     Bsons(#[cause] bson::ser::Error),
+    /// Bson deserialization error
     #[fail(display = "{}", _0)]
     Bsond(#[cause] bson::de::Error),
 }

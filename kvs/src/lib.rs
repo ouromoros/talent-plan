@@ -5,7 +5,6 @@
 #[macro_use]
 extern crate failure_derive;
 
-use err::KvsError;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -15,8 +14,10 @@ use std::{
 };
 use std::{fs::File, io::BufWriter};
 
+/// Errors for KvStore
 mod err;
 pub use err::Result;
+pub use err::KvsError;
 
 const LOG_FILE: &str = "kvs_log";
 
