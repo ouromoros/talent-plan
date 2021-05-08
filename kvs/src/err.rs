@@ -1,7 +1,6 @@
 /// Errors
 #[derive(Fail, Debug)]
 pub enum KvsError {
-    /// Dummy error
     #[fail(display = "KeyNotExist Error")]
     KeyNotExist,
     #[fail(display = "{}", _0)]

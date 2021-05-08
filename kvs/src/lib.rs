@@ -7,10 +7,10 @@ extern crate failure_derive;
 
 use err::KvsError;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs::OpenOptions, io::BufReader, path};
+use std::{collections::HashMap, fs::OpenOptions, io::{BufReader}, path};
 use std::{
     fs::File,
-    io::{BufWriter, Seek, SeekFrom},
+    io::{BufWriter},
 };
 
 mod err;
@@ -22,6 +22,31 @@ const LOG_FILE: &str = "kvs_log";
 enum Command {
     Set { k: String, v: String },
     Remove { k: String },
+}
+
+/// Use bson format for log for the following reasons:
+/// 1. bson library consumes stream lazily, in contrast to json library, which eases
+/// development work.
+/// 2. bson format maintains forward and backward compatibility automatically and is
+/// self-describable, which makes it easy to debug.
+/// 3. bson is a widely accepeted format and may encourage future development of tools
+/// around this database. (probably not)
+fn write_command<W: std::io::Write>(c: &Command, w: &mut W) -> Result<()> {
+    let b = bson::to_document(c)?;
+    b.to_writer(w)?;
+    Ok(())
+}
+
+fn read_command<R: std::io::Read>(r: &mut R) -> Result<Option<Command>> {
+    let read_result = bson::Document::from_reader(r);
+    let d = match read_result {
+        Ok(d) => d,
+        // Err(bson::de::Error::EndOfStream) => break,
+        Err(bson::de::Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let c: Command = bson::from_document(d)?;
+    Ok(Some(c))
 }
 
 /// Implementation of key-value store
@@ -50,14 +75,11 @@ impl KvStore {
         let mut f = File::open(&self.log_path)?;
         let mut br = BufReader::new(&mut f);
         loop {
-            let read_result = bson::Document::from_reader(&mut br);
-            let d = match read_result {
-                Ok(d) => d,
-                // Err(bson::de::Error::EndOfStream) => break,
-                Err(bson::de::Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
-                Err(e) => return Err(e.into()),
+            let c = match read_command(&mut br) {
+                Ok(Some(c)) => c,
+                Ok(None) => break,
+                Err(e) => return Err(e),
             };
-            let c: Command = bson::from_document(d)?;
             self.update_index(&c);
         }
         Ok(())
@@ -71,8 +93,7 @@ impl KvStore {
     }
 
     fn write_command(&mut self, c: &Command) -> Result<()> {
-        let b = bson::to_document(c)?;
-        b.to_writer(&mut self.w)?;
+        write_command(c, &mut self.w)?;
         Ok(())
     }
 
