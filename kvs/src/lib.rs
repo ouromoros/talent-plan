@@ -85,8 +85,21 @@ impl KvStore {
         Ok(kvs)
     }
 
+    fn reload(&mut self) -> Result<()> {
+        let mut wf = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&self.log_path)?;
+        Seek::seek(&mut wf, SeekFrom::End(0))?;
+        let rf = std::fs::File::open(&self.log_path)?;
+        self.w =  BufWriter::new(wf);
+        self.r =  BufReader::new(rf);
+        self.index =  HashMap::new();
+        self.init_index()
+    }
+
     /// Init index for Read and Remove command
-    pub fn init_index(&mut self) -> Result<()> {
+    fn init_index(&mut self) -> Result<()> {
         let mut f = File::open(&self.log_path)?;
         let mut br = BufReader::new(&mut f);
         loop {
@@ -119,9 +132,10 @@ impl KvStore {
     /// Set the value of a key, overrides the original value if the key is already present.
     /// ```rust
     /// use kvs::KvStore;
-    /// let mut s = KvStore::new();
+    /// let temp_dir = tempfile::TempDir::new().unwrap();
+    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
     /// s.set("a".to_owned(), "x".to_owned());
-    /// let v = s.get("a".to_owned()).unwrap();
+    /// let v = s.get("a".to_owned()).unwrap().unwrap();
     /// assert_eq!(v, "x");
     /// ```
     pub fn set(&mut self, k: String, v: String) -> Result<()> {
@@ -134,9 +148,10 @@ impl KvStore {
     /// Get the value of a key if present
     /// ```rust
     /// use kvs::KvStore;
-    /// let mut s = KvStore::new();
+    /// let temp_dir = tempfile::TempDir::new().unwrap();
+    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
     /// s.set("a".to_owned(), "x".to_owned());
-    /// let v = s.get("a".to_owned()).unwrap();
+    /// let v = s.get("a".to_owned()).unwrap().unwrap();
     /// assert_eq!(v, "x");
     /// ```
     pub fn get(&mut self, k: String) -> Result<Option<String>> {
@@ -161,12 +176,13 @@ impl KvStore {
     /// Remove a key if present
     /// ```rust
     /// use kvs::KvStore;
-    /// let mut s = KvStore::new();
+    /// let temp_dir = tempfile::TempDir::new().unwrap();
+    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
     /// s.set("a".to_owned(), "x".to_owned());
-    /// let v = s.get("a".to_owned()).unwrap();
+    /// let v = s.get("a".to_owned()).unwrap().unwrap();
     /// assert_eq!(v, "x");
     /// s.remove("a".to_owned());
-    /// assert_eq!(s.get("a".to_owned()), None);
+    /// assert_eq!(s.get("a".to_owned()).unwrap(), None);
     /// ```
     pub fn remove(&mut self, k: String) -> Result<()> {
         if let None = self.index.get(&k) {
@@ -191,9 +207,8 @@ impl KvStore {
 
         std::fs::remove_file(&self.log_path)?;
         std::fs::rename(&compact_path, &self.log_path)?;
-        // rebuild index after compacting log
-        self.index.clear();
-        self.init_index()?;
+
+        self.reload()?;
         Ok(())
     }
 
