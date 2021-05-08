@@ -5,6 +5,7 @@
 #[macro_use]
 extern crate failure_derive;
 
+use err::KvsError;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::OpenOptions, io::BufReader, path};
 use std::{
@@ -15,37 +16,45 @@ use std::{
 mod err;
 pub use err::Result;
 
+const LOG_FILE: &str = "kvs_log";
+
 #[derive(Debug, Serialize, Deserialize)]
 enum Command {
-    Set { key: String, value: String },
-    Remove { key: String },
+    Set { k: String, v: String },
+    Remove { k: String },
 }
 
 /// Implementation of key-value store
 pub struct KvStore {
-    file_path: path::PathBuf,
+    log_path: path::PathBuf,
     w: BufWriter<File>,
+    index: HashMap<String, String>,
 }
 
 impl KvStore {
     /// Open a new KvStore
     pub fn open(path: &path::Path) -> Result<KvStore> {
-        let mut f = OpenOptions::new().append(true).open(path)?;
-        Ok(KvStore {
-            file_path: path.to_path_buf(),
+        let log_path = path.join(LOG_FILE);
+        let f = OpenOptions::new().create(true).append(true).open(&log_path)?;
+        let mut kvs = KvStore {
+            log_path: log_path,
             w: BufWriter::new(f),
-        })
+            index: HashMap::new(),
+        };
+        kvs.init_index()?;
+        Ok(kvs)
     }
 
     /// Init index for Read and Remove command
     pub fn init_index(&mut self) -> Result<()> {
-        let mut f = File::open(&self.file_path)?;
+        let mut f = File::open(&self.log_path)?;
         let mut br = BufReader::new(&mut f);
         loop {
             let read_result = bson::Document::from_reader(&mut br);
             let d = match read_result {
                 Ok(d) => d,
-                Err(bson::de::Error::EndOfStream) => break,
+                // Err(bson::de::Error::EndOfStream) => break,
+                Err(bson::de::Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
                 Err(e) => return Err(e.into()),
             };
             let c: Command = bson::from_document(d)?;
@@ -55,7 +64,10 @@ impl KvStore {
     }
 
     fn update_index(&mut self, c: &Command) {
-
+        match *c {
+            Command::Set { k: ref key, v: ref value } => self.index.insert(key.to_owned(), value.to_owned()),
+            Command::Remove { k: ref key } => self.index.remove(key),
+        };
     }
 
     fn write_command(&mut self, c: &Command) -> Result<()> {
@@ -73,6 +85,9 @@ impl KvStore {
     /// assert_eq!(v, "x");
     /// ```
     pub fn set(&mut self, k: String, v: String) -> Result<()> {
+        let c = Command::Set{ k, v };
+        self.write_command(&c)?;
+        self.update_index(&c);
         Ok(())
     }
 
@@ -85,7 +100,7 @@ impl KvStore {
     /// assert_eq!(v, "x");
     /// ```
     pub fn get(&self, k: String) -> Result<Option<String>> {
-        panic!("not implemented")
+        Ok(self.index.get(&k).map(|s| s.to_owned()))
     }
 
     /// Remove a key if present
@@ -99,6 +114,12 @@ impl KvStore {
     /// assert_eq!(s.get("a".to_owned()), None);
     /// ```
     pub fn remove(&mut self, k: String) -> Result<()> {
+        if let None = self.index.get(&k) {
+            return Err(KvsError::KeyNotExist)
+        }
+        let c = Command::Remove{ k: k };
+        self.write_command(&c)?;
+        self.update_index(&c);
         Ok(())
     }
 }

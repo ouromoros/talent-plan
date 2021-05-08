@@ -2,8 +2,8 @@
 #[derive(Fail, Debug)]
 pub enum KvsError {
     /// Dummy error
-    #[fail(display = "Kvs Error")]
-    Dummy,
+    #[fail(display = "KeyNotExist Error")]
+    KeyNotExist,
     #[fail(display = "{}", _0)]
     Io(#[cause] std::io::Error),
     #[fail(display = "{}", _0)]
