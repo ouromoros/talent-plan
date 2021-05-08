@@ -6,12 +6,7 @@
 extern crate failure_derive;
 
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs::OpenOptions,
-    io::{BufReader, Seek, SeekFrom, Write},
-    path,
-};
+use std::{collections::HashMap, fs::OpenOptions, io::{BufReader, Seek, SeekFrom, Write}, path};
 use std::{fs::File, io::BufWriter};
 
 /// Errors for KvStore
@@ -20,6 +15,7 @@ pub use err::Result;
 pub use err::KvsError;
 
 const LOG_FILE: &str = "kvs_log";
+const COMPACT_LOG_FILE: &str = "kvs_log_compact";
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Command {
@@ -61,6 +57,7 @@ fn get_offset<T: Seek>(br: &mut T) -> Result<u64> {
 
 /// Implementation of key-value store
 pub struct KvStore {
+    base_path: path::PathBuf,
     log_path: path::PathBuf,
     w: BufWriter<File>,
     r: BufReader<File>,
@@ -78,6 +75,7 @@ impl KvStore {
         Seek::seek(&mut wf, SeekFrom::End(0))?;
         let rf = std::fs::File::open(&log_path)?;
         let mut kvs = KvStore {
+            base_path: path.to_owned(),
             log_path: log_path,
             w: BufWriter::new(wf),
             r: BufReader::new(rf),
@@ -112,6 +110,7 @@ impl KvStore {
 
     fn write_command(&mut self, c: &Command) -> Result<u64> {
         let offset = get_offset(&mut self.w)?;
+        self.maybe_do_compaction(offset)?;
         write_command(c, &mut self.w)?;
         self.w.flush()?; // flush to disk to ensure content can be read later
         Ok(offset)
@@ -176,6 +175,49 @@ impl KvStore {
         let c = Command::Remove { k: k };
         let offset = self.write_command(&c)?;
         self.update_index(&c, offset);
+        Ok(())
+    }
+
+    // A naive STW log compaction implementation that rewrites the whole KvStore to a
+    /// new compacted log file to replace the original one.
+    fn maybe_do_compaction(&mut self, offset: u64) -> Result<()> {
+        if offset < 1024 * 1024 {
+            return Ok(())
+        }
+        let compact_path = self.base_path.join(COMPACT_LOG_FILE);
+        let br = BufReader::new(std::fs::File::open(&self.log_path)?);
+        let bw = BufWriter::new(std::fs::File::create(&compact_path)?);
+        self.compact(br, bw)?;
+
+        std::fs::remove_file(&self.log_path)?;
+        std::fs::rename(&compact_path, &self.log_path)?;
+        // rebuild index after compacting log
+        self.index.clear();
+        self.init_index()?;
+        Ok(())
+    }
+
+    fn compact(&mut self, mut old_log_reader: BufReader<File>, mut new_log_writer: BufWriter<File>) -> Result<()> {
+        loop {
+            let current_offset = get_offset(&mut old_log_reader)?;
+            let result = read_command(&mut old_log_reader)?;
+            let c = match result {
+                Some(c) => c,
+                None => break,
+            };
+            match c {
+                Command::Set{ ref k, .. } => {
+                    if let Some(offset) = self.index.get(k) {
+                        eprintln!("{:?} {:?} {:?}", c, offset, current_offset);
+                        if *offset == current_offset {
+                            write_command(&c, &mut new_log_writer)?;
+                        }
+                    }
+                }
+                Command::Remove { .. } => (),
+            }
+        }
+        new_log_writer.flush()?;
         Ok(())
     }
 }
