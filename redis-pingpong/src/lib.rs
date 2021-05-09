@@ -1,6 +1,10 @@
+#[derive(Debug, Eq, PartialEq)]
 pub struct Request {
     command: String,
     args: Vec<String> 
+}
+
+pub enum Response {
 }
 
 fn read_number<R: std::io::Read + std::io::Seek>(r: &mut R) -> u32 {
@@ -58,4 +62,41 @@ fn req_to_bytes(r: &Request) -> Vec<u8> {
         s.push_str(&to_bulk_str(a));
     }
     s.into_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn write_ping() {
+        
+    }
+
+    #[test]
+    fn read_empty_ping() {
+        let empty_ping_data = b"*1\r\n$4\r\nPING\r\n";
+        let mut r = std::io::Cursor::new(empty_ping_data.to_vec());
+        let req = super::req_from_reader(&mut r);
+        assert_eq!(req, super::Request{ command: "PING".to_owned(), args: Vec::new() })
+    }
+
+    #[test]
+    fn read_ping_with_arg() {
+        let test_cases  = [
+            (b"*2\r\n$4\r\nPING\r\n$5\r\nHELLO\r\n".to_vec(), super::Request{command: "PING".to_owned(), args: vec!["HELLO".to_owned()]}),
+            (b"*2\r\n$4\r\nPING\r\n$11\r\nHELLO WORLD\r\n".to_vec(), super::Request{command: "PING".to_owned(), args: vec!["HELLO WORLD".to_owned()]})
+        ];
+        for (data, expected) in test_cases.iter() {
+            let mut r = std::io::Cursor::new(data);
+            let req = super::req_from_reader(&mut r);
+            assert_eq!(req, *expected)
+        }
+    }
+
+    #[test]
+    fn write_empty_ping() {
+    }
+
+    #[test]
+    fn write_ping_with_arg() {
+    }
 }
