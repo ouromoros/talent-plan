@@ -22,7 +22,7 @@ fn read_number<R: std::io::Read>(r: &mut BufReader<R>) -> u32 {
     let mut result: u32 = 0;
     let mut buf: Vec<u8> = Vec::new();
     r.read_until(b'\r', &mut buf).unwrap();
-    for b in buf.iter() {
+    for b in buf[..buf.len()-1].iter() {
         let n = b - b'0';
         result = result * 10 + u32::from(n);
     }
@@ -38,11 +38,10 @@ pub fn req_from_reader<R: std::io::Read>(r: &mut R) -> Request {
         return Request { command: "PING".to_owned(), args: Vec::new() }
     }
 
-    let mut buf12: [u8; 12] = [0; 12];
+    let mut buf12: [u8; 11] = [0; 11];
     r.read(&mut buf12).expect("io error");
     r.read(&mut buf1).expect("read error");
     let len = read_number(&mut r);
-    r.read(&mut buf1).expect("read error");
     r.read(&mut buf1).expect("read error");
     let mut buf3: Vec<u8> = vec![0; len as usize];
     r.read_exact(&mut buf3).unwrap();
@@ -61,6 +60,10 @@ fn to_bulk_str(s: &str) -> String {
     format!("${}\r\n{}\r\n", s.len(), s)
 }
 
+fn to_simple_str(s: &str) -> String {
+    format!("+{}\r\n", s)
+}
+
 fn req_to_bytes(r: &Request) -> Vec<u8> {
     let mut s = String::new();
     s.push_str(&format!("*{}\r\n", 1 + r.args.len()));
@@ -69,6 +72,14 @@ fn req_to_bytes(r: &Request) -> Vec<u8> {
         s.push_str(&to_bulk_str(a));
     }
     s.into_bytes()
+}
+
+pub fn rsp_to_writer<W: std::io::Write>(w: &mut W, rsp: &RedisData) {
+    if let RedisData::SimpleString(s) = rsp {
+        w.write_all(to_simple_str(s).as_bytes()).unwrap();
+    } else {
+        panic!("not implemented")
+    }
 }
 
 #[cfg(test)]

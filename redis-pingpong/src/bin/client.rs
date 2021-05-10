@@ -6,7 +6,7 @@ fn main() {
     let mut stream = TcpStream::connect(ADDR).unwrap();
     let req = rpp::Request {
         command: "PING".to_owned(),
-        args: Vec::new(),
+        args: vec!["HI".to_owned()],
     };
     rpp::req_to_writer(&mut stream, &req);
     std::io::copy(&mut stream, &mut std::io::stdout()).unwrap();
