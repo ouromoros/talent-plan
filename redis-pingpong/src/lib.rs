@@ -1,29 +1,36 @@
+use std::io::BufReader;
+use std::io::BufRead;
+use std::io::Read;
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct Request {
-    command: String,
-    args: Vec<String> 
+    pub command: String,
+    pub args: Vec<String> 
 }
 
-pub enum Response {
+#[derive(Debug, Eq, PartialEq)]
+pub enum RedisData {
+    BulkString(String),
+    SimpleString(String),
+    Error
 }
 
-fn read_number<R: std::io::Read + std::io::Seek>(r: &mut R) -> u32 {
+fn skip<R: std::io::Read>(r: &mut R) {
+}
+
+fn read_number<R: std::io::Read>(r: &mut BufReader<R>) -> u32 {
     let mut result: u32 = 0;
-    let mut buf1: [u8; 1] = [0; 1];
-    loop {
-        r.read_exact(&mut buf1).unwrap();
-        let b = buf1[0];
-        if b < b'0' || b > b'9' {
-            std::io::Seek::seek(r, std::io::SeekFrom::Current(-1)).unwrap();
-            break
-        }
+    let mut buf: Vec<u8> = Vec::new();
+    r.read_until(b'\r', &mut buf).unwrap();
+    for b in buf.iter() {
         let n = b - b'0';
         result = result * 10 + u32::from(n);
     }
     result
 }
 
-pub fn req_from_reader<R: std::io::Read + std::io::Seek>(mut r: R) -> Request {
+pub fn req_from_reader<R: std::io::Read>(r: &mut R) -> Request {
+    let mut r = BufReader::new(r);
     let mut buf1: [u8; 1] = [0; 1];
     r.read(&mut buf1).expect("read error");
     let len = read_number(&mut r);
@@ -67,11 +74,6 @@ fn req_to_bytes(r: &Request) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn write_ping() {
-        
-    }
-
-    #[test]
     fn read_empty_ping() {
         let empty_ping_data = b"*1\r\n$4\r\nPING\r\n";
         let mut r = std::io::Cursor::new(empty_ping_data.to_vec());
@@ -94,9 +96,21 @@ mod tests {
 
     #[test]
     fn write_empty_ping() {
+        let r = super::Request{ command: "PING".to_owned(), args: Vec::new() };
+        let empty_ping_data = b"*1\r\n$4\r\nPING\r\n".to_vec();
+        let parsed = super::req_to_bytes(&r);
+        assert_eq!(parsed, empty_ping_data)
     }
 
     #[test]
     fn write_ping_with_arg() {
+        let test_cases  = [
+            (b"*2\r\n$4\r\nPING\r\n$5\r\nHELLO\r\n".to_vec(), super::Request{command: "PING".to_owned(), args: vec!["HELLO".to_owned()]}),
+            (b"*2\r\n$4\r\nPING\r\n$11\r\nHELLO WORLD\r\n".to_vec(), super::Request{command: "PING".to_owned(), args: vec!["HELLO WORLD".to_owned()]})
+        ];
+        for (expected, r) in test_cases.iter() {
+            let parsed = super::req_to_bytes(r);
+            assert_eq!(parsed, *expected)
+        }
     }
 }
