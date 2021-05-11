@@ -10,11 +10,10 @@ fn exit(code: i32, msg: &str) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let yaml = load_yaml!("cli.yml");
+    let yaml = load_yaml!("server.yml");
     let matches = App::from_yaml(yaml)
         .version(env!("CARGO_PKG_VERSION"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
-        .name(env!("CARGO_PKG_NAME"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .get_matches();
 

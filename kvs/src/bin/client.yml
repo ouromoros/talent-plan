@@ -1,4 +1,4 @@
-name: kvs
+name: kvs-client
 args:
   - version:
       short: V
@@ -8,6 +8,9 @@ subcommands:
         - KEY:
             index: 1
             required: true
+        - addr:
+            long: addr
+            value_name: IP-PORT
   - set:
       args:
         - KEY:
@@ -16,8 +19,14 @@ subcommands:
         - VALUE:
             index: 2
             required: true
+        - addr:
+            long: addr
+            value_name: IP-PORT
   - rm:
       args:
         - KEY:
             index: 1
             required: true
+        - addr:
+            long: addr
+            value_name: IP-PORT
