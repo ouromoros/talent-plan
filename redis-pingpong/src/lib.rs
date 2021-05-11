@@ -9,23 +9,55 @@ pub struct Request {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum RedisData {
-    BulkString(String),
-    SimpleString(String),
-    Error
+pub enum RedisType {
+    SimpleString(Vec<u8>),
+    Error(Vec<u8>),
+    Integer(i64),
+    BulkString(Vec<u8>),
+    Array(Vec<RedisType>),
+    Null
 }
 
-fn skip<R: std::io::Read>(r: &mut R) {
+fn skip<R: std::io::Read>(r: &mut R, limit: u64) {
+    std::io::copy(&mut r.take(limit), &mut std::io::sink()).unwrap();
 }
 
-fn read_number<R: std::io::Read>(r: &mut BufReader<R>) -> u32 {
-    let mut result: u32 = 0;
-    let mut buf: Vec<u8> = Vec::new();
-    r.read_until(b'\r', &mut buf).unwrap();
+fn read_byte<R: std::io::Read>(r: &mut R) -> u8 {
+    r.bytes().next().unwrap().unwrap()
+}
+
+fn read_until<R: std::io::Read>(r: &mut R, end: u8) -> Vec<u8> {
+    let mut result: Vec<u8> = Vec::new();
+    for b in r.bytes() {
+        let b = b.unwrap();
+        if b == end {
+            break
+        }
+        result.push(b);
+    }
+    result
+}
+
+/// Consumes (possibly signed) number with "\r\n" at the end
+fn read_number<R: std::io::Read>(r: &mut R) -> i64 {
+    let first = read_byte(r);
+    let mut result: i64 = if first == b'-' {
+        (read_byte(r) - b'0').into()
+    } else {
+        (first - b'0').into()
+    };
+    let buf = read_until(r, b'\r');
     for b in buf[..buf.len()-1].iter() {
         let n = b - b'0';
-        result = result * 10 + u32::from(n);
+        result = result * 10 + i64::from(n);
     }
+    skip(r, 1);
+    result
+}
+
+fn read_str<R: std::io::Read>(r: &mut R) -> Vec<u8> {
+    let result = read_until(r, b'\r');
+    skip(r, 1);
     result
 }
 
@@ -74,11 +106,41 @@ fn req_to_bytes(r: &Request) -> Vec<u8> {
     s.into_bytes()
 }
 
-pub fn rsp_to_writer<W: std::io::Write>(w: &mut W, rsp: &RedisData) {
-    if let RedisData::SimpleString(s) = rsp {
-        w.write_all(to_simple_str(s).as_bytes()).unwrap();
-    } else {
-        panic!("not implemented")
+pub fn rtype_to_writer<W: std::io::Write>(w: &mut W, data: &RedisType) {
+    match data {
+        RedisType::Array(arr) => {
+
+        },
+        _ => panic!("unimplemented type")
+    }
+}
+
+pub fn rtype_from_reader<R: std::io::Read>(r: &mut R) -> RedisType {
+    let head = read_byte(r);
+    match head {
+        b'*' => {
+            let mut arr: Vec<RedisType> = Vec::new();
+            let n = read_number(r);
+            for _ in 0..n {
+                arr.push(rtype_from_reader(r));
+            }
+            RedisType::Array(arr)
+        },
+        b'+' => {
+            let s = read_str(r);
+            RedisType::SimpleString(s)
+        },
+        b'$' => {
+            let n = read_number(r);
+            if n == -1 {
+                RedisType::Null
+            } else {
+                let mut s = vec![0 as u8; n as usize];
+                r.read_exact(&mut s).unwrap();
+                RedisType::BulkString(s)
+            }
+        }
+        _ => panic!("unimplemented type")
     }
 }
 
