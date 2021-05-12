@@ -11,7 +11,7 @@ fn exit(code: i32, msg: &str) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    simple_logger::SimpleLogger::new().init().unwrap();
+    env_logger::init();
     let yaml = load_yaml!("server.yml");
     let matches = App::from_yaml(yaml)
         .version(env!("CARGO_PKG_VERSION"))
