@@ -10,12 +10,9 @@ pub enum KvsError {
     /// Io error
     #[fail(display = "{}", _0)]
     Io(#[cause] std::io::Error),
-    /// Bson serialization error
+    /// Json error
     #[fail(display = "{}", _0)]
-    Bsons(#[cause] bson::ser::Error),
-    /// Bson deserialization error
-    #[fail(display = "{}", _0)]
-    Bsond(#[cause] bson::de::Error),
+    Json(#[cause] serde_json::Error),
 }
 
 impl From<std::io::Error> for KvsError {
@@ -24,15 +21,9 @@ impl From<std::io::Error> for KvsError {
     }
 }
 
-impl From<bson::ser::Error> for KvsError {
-    fn from(e: bson::ser::Error) -> Self {
-        KvsError::Bsons(e)
-    }
-}
-
-impl From<bson::de::Error> for KvsError {
-    fn from(e: bson::de::Error) -> Self {
-        KvsError::Bsond(e)
+impl From<serde_json::Error> for KvsError {
+    fn from(e: serde_json::Error) -> Self {
+        KvsError::Json(e)
     }
 }
 

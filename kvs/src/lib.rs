@@ -6,8 +6,9 @@
 extern crate failure_derive;
 
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs::OpenOptions, io::{BufReader, Seek, SeekFrom, Write}, path};
+use std::{collections::HashMap, fs::OpenOptions, io::{BufReader, Seek, SeekFrom, Write}, path, usize};
 use std::{fs::File, io::BufWriter};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 /// Errors for KvStore
 mod err;
@@ -23,7 +24,9 @@ enum Command {
     Remove { k: String },
 }
 
-/// Use bson format for log for the following reasons:
+/// UPDATE: Use framed json because it's easier to debug and work with.
+/// The first 8 bytes indicate size of packet.
+/// ~Use bson format for log for the following reasons:~
 /// 1. bson library consumes stream lazily, in contrast to json library, which eases
 /// development work.
 /// 2. bson format maintains forward and backward compatibility automatically and is
@@ -31,23 +34,35 @@ enum Command {
 /// 3. bson is a widely accepeted format and may encourage future development of tools
 /// around this database. (probably not)
 fn write_command<W: std::io::Write>(c: &Command, w: &mut W) -> Result<()> {
-    let b = bson::to_document(c)?;
-    b.to_writer(w)?;
+    let data = serde_json::to_vec(c)?;
+    let size = data.len();
+    write_u64(size as u64, w)?;
+    w.write_all(data.as_ref())?;
     Ok(())
 }
 
 fn read_command<R: std::io::Read>(r: &mut R) -> Result<Option<Command>> {
-    let read_result = bson::Document::from_reader(r);
-    let d = match read_result {
-        Ok(d) => d,
+    let header_result = read_u64(r);
+    let size = match header_result {
+        Ok(n) => n,
         // Err(bson::de::Error::EndOfStream) => break,
-        Err(bson::de::Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
             return Ok(None)
         }
         Err(e) => return Err(e.into()),
     };
-    let c: Command = bson::from_document(d)?;
+    let mut body = vec![0 as u8; size as usize];
+    r.read_exact(&mut body)?;
+    let c: Command = serde_json::from_slice(body.as_ref())?;
     Ok(Some(c))
+}
+
+fn read_u64<R: std::io::Read>(r: &mut R) -> std::io::Result<u64> {
+    r.read_u64::<BigEndian>()
+}
+
+fn write_u64<W: std::io::Write>(n: u64, w: &mut W) -> std::io::Result<()> {
+    w.write_u64::<BigEndian>(n)
 }
 
 fn get_offset<T: Seek>(br: &mut T) -> Result<u64> {
