@@ -15,6 +15,9 @@ mod err;
 pub use err::Result;
 pub use err::KvsError;
 
+/// Kvs client-server protocol
+pub mod protocol;
+
 const LOG_FILE: &str = "kvs_log";
 const COMPACT_LOG_FILE: &str = "kvs_log_compact";
 

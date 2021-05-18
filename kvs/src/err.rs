@@ -7,6 +7,9 @@ pub enum KvsError {
     /// File data is corrupted
     #[fail(display = "DataCurruption Error")]
     DataCurruption,
+    /// Parsing client-server command error
+    #[fail(display = "Parse arguments error: {}", _0)]
+    ParseError(String),
     /// Io error
     #[fail(display = "{}", _0)]
     Io(#[cause] std::io::Error),
