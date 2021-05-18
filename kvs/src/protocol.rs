@@ -2,6 +2,7 @@ use crate::err::Result;
 use crate::err::KvsError::{ParseError};
 
 /// Kvs protocol request
+#[derive(Debug, Eq, PartialEq)]
 pub enum Request {
   /// Get command
   Get(String),
@@ -12,6 +13,7 @@ pub enum Request {
 }
 
 /// Kvs protocol request
+#[derive(Debug, Eq, PartialEq)]
 pub enum Response {
   /// Value response
   Value(Option<String>),
@@ -32,7 +34,7 @@ fn read_number<R: std::io::Read>(r: &mut R) -> Result<i64> {
     (first - b'0').into()
   };
   let buf = read_until(r, b'\r')?;
-  for b in buf[..buf.len()-1].iter() {
+  for b in buf.iter() {
     let n = b - b'0';
     result = result * 10 + i64::from(n);
   }
@@ -176,4 +178,32 @@ fn read_until<R: std::io::Read>(r: &mut R, end: u8) -> Result<Vec<u8>> {
     result.push(b);
   }
   Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn request() {
+    let get_req = "2\r\n\
+                        GET\r\n\
+                        hello\r\n\r\n";
+    let mut c = std::io::Cursor::new(get_req.as_bytes());
+    let req = super::Request::from_reader(&mut c).unwrap();
+    assert_eq!(req, super::Request::Get("hello".to_string()));
+    let mut c = std::io::Cursor::new(Vec::<u8>::new());
+    req.to_writer(&mut c).unwrap();
+    assert_eq!(String::from_utf8(c.into_inner()).unwrap(), get_req);
+  }
+  #[test]
+  fn response() {
+    let get_rsp = "2\r\n\
+                        VALUE\r\n\
+                        world\r\n\r\n";
+    let mut c = std::io::Cursor::new(get_rsp.as_bytes());
+    let rsp = super::Response::from_reader(&mut c).unwrap();
+    assert_eq!(rsp, super::Response::Value(Some("world".to_string())));
+    let mut c = std::io::Cursor::new(Vec::<u8>::new());
+    rsp.to_writer(&mut c).unwrap();
+    assert_eq!(String::from_utf8(c.into_inner()).unwrap(), get_rsp);
+  }
 }
