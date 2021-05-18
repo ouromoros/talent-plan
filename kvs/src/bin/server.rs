@@ -24,11 +24,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let addr =  if let Some(addr) = matches.value_of("addr") {
-        addr
-    } else {
-        "127.0.0.1:4000"
-    };
+    let addr = matches.value_of("addr").unwrap();
     let engine = if let Some(engine) = matches.value_of("engine") {
         engine
     } else {
@@ -36,6 +32,15 @@ fn main() -> Result<()> {
     };
 
     info!("Addr={} Engine={}", addr, engine);
+    loop {
+        let bind = std::net::TcpListener::bind(addr)?;
+        let connection = bind.accept()?;
+        let (stream, _) = connection;
+        serve(stream)?;
+    }
+    Ok(())
+}
 
+fn serve(s: std::net::TcpStream) -> Result<()> {
     Ok(())
 }

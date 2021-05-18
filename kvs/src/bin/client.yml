@@ -11,6 +11,7 @@ subcommands:
         - addr:
             long: addr
             value_name: IP-PORT
+            default_value: 127.0.0.1:4000
   - set:
       args:
         - KEY:
@@ -22,6 +23,7 @@ subcommands:
         - addr:
             long: addr
             value_name: IP-PORT
+            default_value: 127.0.0.1:4000
   - rm:
       args:
         - KEY:
@@ -30,3 +32,4 @@ subcommands:
         - addr:
             long: addr
             value_name: IP-PORT
+            default_value: 127.0.0.1:4000

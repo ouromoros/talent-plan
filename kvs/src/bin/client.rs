@@ -26,6 +26,7 @@ fn main() -> Result<()> {
         Some("get") => {
             let matches = matches.subcommand_matches("get").unwrap();
             let key = matches.value_of("KEY").unwrap();
+            let addr = matches.value_of("addr").unwrap();
             get(key.to_owned())
         }
         Some("set") => {
