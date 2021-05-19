@@ -3,7 +3,7 @@ extern crate clap;
 
 use clap::App;
 
-use kvs::Result;
+use kvs::{Result, KvsEngine};
 use kvs::protocol::{Request, Response};
 use log::{info, debug};
 
@@ -46,7 +46,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn serve(store: &mut kvs::KvStore, s: std::net::TcpStream) -> Result<()> {
+fn serve(store: &mut kvs::KvsEngine, s: std::net::TcpStream) -> Result<()> {
     let mut br = std::io::BufReader::new(&s);
     let mut bw = std::io::BufWriter::new(&s);
     let req = Request::from_reader(&mut br)?;

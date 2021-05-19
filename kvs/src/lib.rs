@@ -147,41 +147,6 @@ impl KvStore {
         Ok(offset)
     }
 
-    /// Set the value of a key, overrides the original value if the key is already present.
-    /// ```rust
-    /// use kvs::KvStore;
-    /// let temp_dir = tempfile::TempDir::new().unwrap();
-    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
-    /// s.set("a".to_owned(), "x".to_owned());
-    /// let v = s.get("a".to_owned()).unwrap().unwrap();
-    /// assert_eq!(v, "x");
-    /// ```
-    pub fn set(&mut self, k: String, v: String) -> Result<()> {
-        let c = Command::Set { k, v };
-        let offset = self.write_command(&c)?;
-        self.update_index(&c, offset);
-        Ok(())
-    }
-
-    /// Get the value of a key if present
-    /// ```rust
-    /// use kvs::KvStore;
-    /// let temp_dir = tempfile::TempDir::new().unwrap();
-    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
-    /// s.set("a".to_owned(), "x".to_owned());
-    /// let v = s.get("a".to_owned()).unwrap().unwrap();
-    /// assert_eq!(v, "x");
-    /// ```
-    pub fn get(&mut self, k: String) -> Result<Option<String>> {
-        match self.index.get(&k) {
-            Some(offset) => {
-                let offset = *offset;
-                self.get_val(offset).map(|v| Some(v))
-            }
-            None => Ok(None),
-        }
-    }
-
     fn get_val(&mut self, offset: u64) -> Result<String> {
         Seek::seek(&mut self.r, SeekFrom::Start(offset))?;
         if let Some(Command::Set { v, .. }) = read_command(&mut self.r)? {
@@ -189,27 +154,6 @@ impl KvStore {
         } else {
             Err(KvsError::DataCurruption)
         }
-    }
-
-    /// Remove a key if present
-    /// ```rust
-    /// use kvs::KvStore;
-    /// let temp_dir = tempfile::TempDir::new().unwrap();
-    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
-    /// s.set("a".to_owned(), "x".to_owned());
-    /// let v = s.get("a".to_owned()).unwrap().unwrap();
-    /// assert_eq!(v, "x");
-    /// s.remove("a".to_owned());
-    /// assert_eq!(s.get("a".to_owned()).unwrap(), None);
-    /// ```
-    pub fn remove(&mut self, k: String) -> Result<()> {
-        if let None = self.index.get(&k) {
-            return Err(KvsError::KeyNotExist);
-        }
-        let c = Command::Remove { k: k };
-        let offset = self.write_command(&c)?;
-        self.update_index(&c, offset);
-        Ok(())
     }
 
     // A naive STW log compaction implementation that rewrites the whole KvStore to a
@@ -251,6 +195,64 @@ impl KvStore {
             }
         }
         new_log_writer.flush()?;
+        Ok(())
+    }
+}
+
+impl KvsEngine for KvStore {
+    /// Set the value of a key, overrides the original value if the key is already present.
+    /// ```rust
+    /// use kvs::{KvsEngine, KvStore};
+    /// let temp_dir = tempfile::TempDir::new().unwrap();
+    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
+    /// s.set("a".to_owned(), "x".to_owned());
+    /// let v = s.get("a".to_owned()).unwrap().unwrap();
+    /// assert_eq!(v, "x");
+    /// ```
+    fn set(&mut self, k: String, v: String) -> Result<()> {
+        let c = Command::Set { k, v };
+        let offset = self.write_command(&c)?;
+        self.update_index(&c, offset);
+        Ok(())
+    }
+
+    /// Get the value of a key if present
+    /// ```rust
+    /// use kvs::{KvsEngine, KvStore};
+    /// let temp_dir = tempfile::TempDir::new().unwrap();
+    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
+    /// s.set("a".to_owned(), "x".to_owned());
+    /// let v = s.get("a".to_owned()).unwrap().unwrap();
+    /// assert_eq!(v, "x");
+    /// ```
+    fn get(&mut self, k: String) -> Result<Option<String>> {
+        match self.index.get(&k) {
+            Some(offset) => {
+                let offset = *offset;
+                self.get_val(offset).map(|v| Some(v))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Remove a key if present
+    /// ```rust
+    /// use kvs::{KvsEngine, KvStore};
+    /// let temp_dir = tempfile::TempDir::new().unwrap();
+    /// let mut s = KvStore::open(temp_dir.path()).unwrap();
+    /// s.set("a".to_owned(), "x".to_owned());
+    /// let v = s.get("a".to_owned()).unwrap().unwrap();
+    /// assert_eq!(v, "x");
+    /// s.remove("a".to_owned());
+    /// assert_eq!(s.get("a".to_owned()).unwrap(), None);
+    /// ```
+    fn remove(&mut self, k: String) -> Result<()> {
+        if let None = self.index.get(&k) {
+            return Err(KvsError::KeyNotExist);
+        }
+        let c = Command::Remove { k: k };
+        let offset = self.write_command(&c)?;
+        self.update_index(&c, offset);
         Ok(())
     }
 }
