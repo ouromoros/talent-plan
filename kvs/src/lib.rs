@@ -94,7 +94,7 @@ impl KvStore {
         let rf = std::fs::File::open(&log_path)?;
         let mut kvs = KvStore {
             base_path: path.to_owned(),
-            log_path: log_path,
+            log_path,
             w: BufWriter::new(wf),
             r: BufReader::new(rf),
             index: HashMap::new(),
@@ -250,7 +250,7 @@ impl KvsEngine for KvStore {
         if let None = self.index.get(&k) {
             return Err(KvsError::KeyNotExist);
         }
-        let c = Command::Remove { k: k };
+        let c = Command::Remove { k };
         let offset = self.write_command(&c)?;
         self.update_index(&c, offset);
         Ok(())
