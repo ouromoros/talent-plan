@@ -27,11 +27,7 @@ fn main() -> Result<()> {
     }
 
     let addr = matches.value_of("addr").unwrap();
-    let engine = if let Some(engine) = matches.value_of("engine") {
-        engine
-    } else {
-        "kvs"
-    };
+    let engine = matches.value_of("engine").unwrap();
 
     error!("VERSION={} Addr={} Engine={}", env!("CARGO_PKG_VERSION"), addr, engine);
     let mut store = kvs::KvStore::open(&std::env::current_dir()?)?;

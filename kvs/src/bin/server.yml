@@ -10,3 +10,4 @@ args:
       long: engine
       value_name: ENGINE-NAME
       possible_values: [kvs, sled]
+      default_value: kvs
