@@ -51,6 +51,14 @@ fn main() -> Result<()> {
     let mut conn = TcpStream::connect(addr)?;
     conn.write_all(req.to_str()?.as_bytes())?;
     let rsp = Response::from_reader(&mut conn)?;
-    println!("rsp: {:?}", rsp);
+    match rsp {
+        Response::Value(Some(v)) => println!("{}", v),
+        Response::Value(None) => println!("Key not found"),
+        Response::Err(e) => match e.as_str() {
+            "OK" => {},
+            "KeyNotExist" => exit(10, "Key not found"),
+            e => exit(100, format!("Unknown error: {}", e).as_str()),
+        }
+    }
     Ok(())
 }

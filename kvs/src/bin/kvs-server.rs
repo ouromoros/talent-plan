@@ -5,7 +5,7 @@ use clap::App;
 
 use kvs::{Result, KvsEngine};
 use kvs::protocol::{Request, Response};
-use log::{info, debug};
+use log::{debug, error};
 
 fn exit(code: i32, msg: &str) -> ! {
     eprintln!("{}", msg);
@@ -33,7 +33,7 @@ fn main() -> Result<()> {
         "kvs"
     };
 
-    info!("Addr={} Engine={}", addr, engine);
+    error!("VERSION={} Addr={} Engine={}", env!("CARGO_PKG_VERSION"), addr, engine);
     let mut store = kvs::KvStore::open(&std::env::current_dir()?)?;
     let bind = if let Ok(bind) = std::net::TcpListener::bind(addr) {
         bind
