@@ -7,9 +7,9 @@ use kvs::{Result, KvsEngine};
 use kvs::protocol::{Request, Response};
 use log::{info, debug};
 
-fn exit(code: i32, msg: &str) -> Result<()> {
+fn exit(code: i32, msg: &str) -> ! {
     eprintln!("{}", msg);
-    std::process::exit(code);
+    std::process::exit(code)
 }
 
 fn main() -> Result<()> {
@@ -35,7 +35,11 @@ fn main() -> Result<()> {
 
     info!("Addr={} Engine={}", addr, engine);
     let mut store = kvs::KvStore::open(&std::env::current_dir()?)?;
-    let bind = std::net::TcpListener::bind(addr)?;
+    let bind = if let Ok(bind) = std::net::TcpListener::bind(addr) {
+        bind
+    } else {
+        exit(1, "bind addr error!")
+    };
     loop {
         debug!("start listening...");
         let connection = bind.accept()?;
@@ -43,10 +47,9 @@ fn main() -> Result<()> {
         debug!("connection from {:?}", sock_addr.ip());
         serve(&mut store, stream)?;
     }
-    Ok(())
 }
 
-fn serve(store: &mut kvs::KvsEngine, s: std::net::TcpStream) -> Result<()> {
+fn serve<E: KvsEngine>(store: &mut E, s: std::net::TcpStream) -> Result<()> {
     let mut br = std::io::BufReader::new(&s);
     let mut bw = std::io::BufWriter::new(&s);
     let req = Request::from_reader(&mut br)?;
