@@ -3,7 +3,9 @@ extern crate clap;
 use clap::App;
 
 use kvs::Result;
-use kvs::protocol::Request;
+use kvs::protocol::{Request, Response};
+use std::net::TcpStream;
+use std::io::Write;
 
 fn exit(code: i32, msg: &str) -> ! {
     eprintln!("{}", msg);
@@ -46,5 +48,9 @@ fn main() -> Result<()> {
         None => exit(2, "subcommand not provided"),
         _ => exit(3, "unsupported command"),
     };
+    let mut conn = TcpStream::connect(addr)?;
+    conn.write_all(req.to_str()?.as_bytes())?;
+    let rsp = Response::from_reader(&mut conn)?;
+    println!("rsp: {:?}", rsp);
     Ok(())
 }

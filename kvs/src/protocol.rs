@@ -1,6 +1,5 @@
 use crate::err::Result;
 use crate::err::KvsError::{ParseError};
-use crate::KvsError;
 
 /// Kvs protocol request
 #[derive(Debug, Eq, PartialEq)]
@@ -23,7 +22,7 @@ pub enum Response {
 }
 
 fn write_crlf<W: std::io::Write>(w: &mut W) -> Result<()> {
-    w.write(&[b'\r', b'\n'])?;
+    w.write_all(&[b'\r', b'\n'])?;
     Ok(())
 }
 
@@ -44,7 +43,7 @@ fn read_number<R: std::io::Read>(r: &mut R) -> Result<i64> {
 }
 
 fn write_number<W: std::io::Write>(w: &mut W, n: i64) -> Result<()> {
-    w.write(n.to_string().as_ref())?;
+    w.write_all(n.to_string().as_ref())?;
     write_crlf(w)
 }
 
@@ -55,7 +54,7 @@ fn read_str<R: std::io::Read>(r: &mut R) -> Result<Vec<u8>> {
 }
 
 fn write_str<W: std::io::Write>(w: &mut W, s: &str) -> Result<()> {
-    w.write(s.as_bytes())?;
+    w.write_all(s.as_bytes())?;
     write_crlf(w)
 }
 
@@ -119,7 +118,7 @@ impl Request {
     }
 
     /// Encodes request to string
-    pub fn to_str<W: std::io::Write>(&self) -> Result<String> {
+    pub fn to_str(&self) -> Result<String> {
         let mut w = std::io::Cursor::new(Vec::<u8>::new());
         self.to_writer(&mut w)?;
         String::from_utf8(w.into_inner()).map_err(|_| ParseError("decode string error".to_string()))
@@ -169,11 +168,6 @@ fn read_byte<R: std::io::Read>(r: &mut R) -> Result<u8> {
     let mut buf = [0 as u8; 1];
     r.read_exact(&mut buf)?;
     Ok(buf[0])
-}
-
-fn write_byte<W: std::io::Write>(w: &mut W, b: u8) -> Result<()> {
-    w.write(&[b])?;
-    Ok(())
 }
 
 fn read_until<R: std::io::Read>(r: &mut R, end: u8) -> Result<Vec<u8>> {

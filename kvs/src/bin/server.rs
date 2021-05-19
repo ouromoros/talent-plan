@@ -35,8 +35,8 @@ fn main() -> Result<()> {
 
     info!("Addr={} Engine={}", addr, engine);
     let mut store = kvs::KvStore::open(&std::env::current_dir()?)?;
+    let bind = std::net::TcpListener::bind(addr)?;
     loop {
-        let bind = std::net::TcpListener::bind(addr)?;
         debug!("start listening...");
         let connection = bind.accept()?;
         let (stream, sock_addr) = connection;
