@@ -13,13 +13,18 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 /// Errors for KvStore
 mod err;
 pub use err::Result;
-pub use err::KvsError;
+pub use err::Error;
 
 /// Kvs client-server protocol
 pub mod protocol;
 
-const LOG_FILE: &str = "kvs_log";
-const COMPACT_LOG_FILE: &str = "kvs_log_compact";
+mod sled_engine;
+pub use sled_engine::SLED_DB_FILE;
+pub use sled_engine::SledStore;
+
+/// KvStore log file name
+pub const KVS_LOG_FILE: &str = "kvs_log";
+const KVS_COMPACT_LOG_FILE: &str = "kvs_log_compact";
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Command {
@@ -85,7 +90,7 @@ pub struct KvStore {
 impl KvStore {
     /// Open a new KvStore
     pub fn open(path: &path::Path) -> Result<KvStore> {
-        let log_path = path.join(LOG_FILE);
+        let log_path = path.join(KVS_LOG_FILE);
         let mut wf = OpenOptions::new()
             .create(true)
             .write(true)
@@ -152,7 +157,7 @@ impl KvStore {
         if let Some(Command::Set { v, .. }) = read_command(&mut self.r)? {
             Ok(v)
         } else {
-            Err(KvsError::DataCurruption)
+            Err(Error::DataCorruption)
         }
     }
 
@@ -162,7 +167,7 @@ impl KvStore {
         if offset < 1024 * 1024 {
             return Ok(())
         }
-        let compact_path = self.base_path.join(COMPACT_LOG_FILE);
+        let compact_path = self.base_path.join(KVS_COMPACT_LOG_FILE);
         let br = BufReader::new(std::fs::File::open(&self.log_path)?);
         let bw = BufWriter::new(std::fs::File::create(&compact_path)?);
         self.compact(br, bw)?;
@@ -248,7 +253,7 @@ impl KvsEngine for KvStore {
     /// ```
     fn remove(&mut self, k: String) -> Result<()> {
         if let None = self.index.get(&k) {
-            return Err(KvsError::KeyNotExist);
+            return Err(Error::KeyNotExist);
         }
         let c = Command::Remove { k };
         let offset = self.write_command(&c)?;

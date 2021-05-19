@@ -6,10 +6,23 @@ use clap::App;
 use kvs::{Result, KvsEngine};
 use kvs::protocol::{Request, Response};
 use log::{debug, error};
+use std::net::TcpListener;
 
 fn exit(code: i32, msg: &str) -> ! {
     eprintln!("{}", msg);
     std::process::exit(code)
+}
+
+fn detect_engine(path: &std::path::Path) -> Option<String> {
+    let kvs_log_file = path.join(kvs::KVS_LOG_FILE);
+    let sled_db_file = path.join(kvs::SLED_DB_FILE);
+    if kvs_log_file.exists() {
+        Some("kvs".to_string())
+    } else if sled_db_file.exists() {
+        Some("sled".to_string())
+    } else {
+        None
+    }
 }
 
 fn main() -> Result<()> {
@@ -28,14 +41,31 @@ fn main() -> Result<()> {
 
     let addr = matches.value_of("addr").unwrap();
     let engine = matches.value_of("engine").unwrap();
+    let detected_engine = detect_engine(std::env::current_dir()?.as_path());
+    debug!("specified engine: {}, detected engine: {:?}", engine, detected_engine);
+    if let Some(de) = detected_engine {
+        if de != engine {
+            exit(5, format!("Engine specified: {}, actual: {}", engine, de).as_str());
+        }
+    }
 
     error!("VERSION={} Addr={} Engine={}", env!("CARGO_PKG_VERSION"), addr, engine);
-    let mut store = kvs::KvStore::open(&std::env::current_dir()?)?;
     let bind = if let Ok(bind) = std::net::TcpListener::bind(addr) {
         bind
     } else {
         exit(1, "bind addr error!")
     };
+    let current_dir = std::env::current_dir()?;
+    if engine == "kvs" {
+        let store = kvs::KvStore::open(&current_dir)?;
+        run(bind, store)
+    } else {
+        let store = kvs::SledStore::open(&current_dir)?;
+        run(bind, store)
+    }
+}
+
+fn run<E: KvsEngine>(bind: TcpListener, mut store: E) -> Result<()> {
     loop {
         debug!("start listening...");
         let connection = bind.accept()?;

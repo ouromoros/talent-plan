@@ -1,5 +1,5 @@
 use crate::err::Result;
-use crate::err::KvsError::{ParseError};
+use crate::err::Error::{ParseError};
 
 /// Kvs protocol request
 #[derive(Debug, Eq, PartialEq)]
