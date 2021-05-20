@@ -2,9 +2,6 @@
 
 //! A simple key-value store that supports get, set and remove operations
 
-#[macro_use]
-extern crate failure_derive;
-
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::OpenOptions, io::{BufReader, Seek, SeekFrom, Write}, path, usize};
 use std::{fs::File, io::BufWriter};
@@ -191,7 +188,6 @@ impl KvStore {
                 Command::Set{ ref k, .. } => {
                     if let Some(offset) = self.index.get(k) {
                         if *offset == current_offset {
-                            eprintln!("{:?} {:?} {:?}", c, offset, current_offset);
                             write_command(&c, &mut new_log_writer)?;
                         }
                     }

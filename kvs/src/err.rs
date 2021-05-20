@@ -1,3 +1,4 @@
+use failure_derive::{Fail};
 /// Errors
 #[derive(Fail, Debug)]
 pub enum Error {
