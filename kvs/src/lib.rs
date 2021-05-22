@@ -16,6 +16,8 @@ pub use err::Error;
 pub mod protocol;
 
 mod sled_engine;
+pub mod thread_pool;
+
 pub use sled_engine::SLED_DB_FILE;
 pub use sled_engine::SledStore;
 
@@ -210,10 +212,10 @@ impl KvsEngine for KvStore {
     /// let v = s.get("a".to_owned()).unwrap().unwrap();
     /// assert_eq!(v, "x");
     /// ```
-    fn set(&mut self, k: String, v: String) -> Result<()> {
+    fn set(&self, k: String, v: String) -> Result<()> {
         let c = Command::Set { k, v };
-        let offset = self.write_command(&c)?;
-        self.update_index(&c, offset);
+        // let offset = self.write_command(&c)?;
+        // self.update_index(&c, offset);
         Ok(())
     }
 
@@ -226,11 +228,12 @@ impl KvsEngine for KvStore {
     /// let v = s.get("a".to_owned()).unwrap().unwrap();
     /// assert_eq!(v, "x");
     /// ```
-    fn get(&mut self, k: String) -> Result<Option<String>> {
+    fn get(&self, k: String) -> Result<Option<String>> {
         match self.index.get(&k) {
             Some(offset) => {
                 let offset = *offset;
-                self.get_val(offset).map(|v| Some(v))
+                panic!("");
+                // self.get_val(offset).map(|v| Some(v))
             }
             None => Ok(None),
         }
@@ -247,13 +250,13 @@ impl KvsEngine for KvStore {
     /// s.remove("a".to_owned());
     /// assert_eq!(s.get("a".to_owned()).unwrap(), None);
     /// ```
-    fn remove(&mut self, k: String) -> Result<()> {
+    fn remove(&self, k: String) -> Result<()> {
         if let None = self.index.get(&k) {
             return Err(Error::KeyNotExist);
         }
         let c = Command::Remove { k };
-        let offset = self.write_command(&c)?;
-        self.update_index(&c, offset);
+        // let offset = self.write_command(&c)?;
+        // self.update_index(&c, offset);
         Ok(())
     }
 }
@@ -261,9 +264,9 @@ impl KvsEngine for KvStore {
 /// Engine
 pub trait KvsEngine {
     /// Set the value of a string key to a string.
-    fn set(&mut self, key: String, value: String) -> Result<()>;
+    fn set(&self, key: String, value: String) -> Result<()>;
     /// Get the string value of a string key. If the key does not exist, return None.
-    fn get(&mut self, key: String) -> Result<Option<String>>;
+    fn get(&self, key: String) -> Result<Option<String>>;
     /// Remove a given string key.
-    fn remove(&mut self, key: String) -> Result<()>;
+    fn remove(&self, key: String) -> Result<()>;
 }

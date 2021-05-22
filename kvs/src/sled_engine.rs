@@ -20,13 +20,13 @@ impl SledStore {
 }
 
 impl KvsEngine for SledStore {
-    fn set(&mut self, key: String, value: String) -> Result<()> {
+    fn set(&self, key: String, value: String) -> Result<()> {
         self.db.insert(key, value.as_bytes())?;
         self.db.flush()?;
         Ok(())
     }
 
-    fn get(&mut self, key: String) -> Result<Option<String>> {
+    fn get(&self, key: String) -> Result<Option<String>> {
         let result = self.db.get(key)?;
         if let Some(v) = result {
             match String::from_utf8(v.to_vec()) {
@@ -38,7 +38,7 @@ impl KvsEngine for SledStore {
         }
     }
 
-    fn remove(&mut self, key: String) -> Result<()> {
+    fn remove(&self, key: String) -> Result<()> {
         let result = self.db.remove(key)?;
         self.db.flush()?;
         match result {
