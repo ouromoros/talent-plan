@@ -7,7 +7,7 @@ use kvs::{Result, KvsEngine};
 use kvs::protocol::{Request, Response};
 use log::{debug, error};
 use std::net::TcpListener;
-use kvs::thread_pool::{NaiveThreadPool, ThreadPool};
+use kvs::thread_pool::{NaiveThreadPool, ThreadPool, SharedQueueThreadPool};
 
 fn exit(code: i32, msg: &str) -> ! {
     eprintln!("{}", msg);
@@ -67,7 +67,8 @@ fn main() -> Result<()> {
 }
 
 fn run<E: KvsEngine>(bind: TcpListener, mut store: E) -> Result<()> {
-    let pool = NaiveThreadPool::new(10)?;
+    let thread_num = num_cpus::get();
+    let pool = SharedQueueThreadPool::new(thread_num as u32)?;
     loop {
         debug!("start listening...");
         let connection = bind.accept()?;

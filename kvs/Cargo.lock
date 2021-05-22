@@ -525,6 +525,7 @@ dependencies = [
  "failure",
  "failure_derive",
  "log",
+ "num_cpus",
  "panic-control",
  "predicates",
  "rand",
