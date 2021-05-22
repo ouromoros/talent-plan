@@ -19,6 +19,12 @@ impl SledStore {
     }
 }
 
+impl Clone for SledStore {
+    fn clone(&self) -> Self {
+        panic!()
+    }
+}
+
 impl KvsEngine for SledStore {
     fn set(&self, key: String, value: String) -> Result<()> {
         self.db.insert(key, value.as_bytes())?;

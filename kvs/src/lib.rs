@@ -20,6 +20,7 @@ pub mod thread_pool;
 
 pub use sled_engine::SLED_DB_FILE;
 pub use sled_engine::SledStore;
+use std::sync::{RwLock, Arc};
 
 /// KvStore log file name
 pub const KVS_LOG_FILE: &str = "kvs_log";
@@ -77,13 +78,19 @@ fn get_offset<T: Seek>(br: &mut T) -> Result<u64> {
     Seek::seek(br, SeekFrom::Current(0)).map_err(|e| e.into())
 }
 
+type Index = HashMap<String, u64>;
+
+struct KvStoreInternal {
+    w: BufWriter<File>,
+    r: BufReader<File>,
+    index: Index,
+}
+
 /// Implementation of key-value store
 pub struct KvStore {
     base_path: path::PathBuf,
     log_path: path::PathBuf,
-    w: BufWriter<File>,
-    r: BufReader<File>,
-    index: HashMap<String, u64>,
+    data: Arc<RwLock<KvStoreInternal>>,
 }
 
 impl KvStore {
@@ -99,29 +106,35 @@ impl KvStore {
         let mut kvs = KvStore {
             base_path: path.to_owned(),
             log_path,
-            w: BufWriter::new(wf),
-            r: BufReader::new(rf),
-            index: HashMap::new(),
+            data: Arc::new(RwLock::new(KvStoreInternal{
+                w: BufWriter::new(wf),
+                r: BufReader::new(rf),
+                index: HashMap::new(),
+            })),
         };
-        kvs.init_index()?;
+        {
+            let mut data = kvs.data.write().unwrap();
+            kvs.init_index(&mut data.index)?;
+        }
         Ok(kvs)
     }
 
-    fn reload(&mut self) -> Result<()> {
+    fn reload(&self) -> Result<()> {
         let mut wf = OpenOptions::new()
             .create(true)
             .write(true)
             .open(&self.log_path)?;
         Seek::seek(&mut wf, SeekFrom::End(0))?;
         let rf = std::fs::File::open(&self.log_path)?;
-        self.w =  BufWriter::new(wf);
-        self.r =  BufReader::new(rf);
-        self.index =  HashMap::new();
-        self.init_index()
+        let mut data = self.data.write().unwrap();
+        data.w =  BufWriter::new(wf);
+        data.r =  BufReader::new(rf);
+        data.index =  HashMap::new();
+        self.init_index(&mut data.index)
     }
 
     /// Init index for Read and Remove command
-    fn init_index(&mut self) -> Result<()> {
+    fn init_index(&self, index: &mut Index) -> Result<()> {
         let mut f = File::open(&self.log_path)?;
         let mut br = BufReader::new(&mut f);
         loop {
@@ -131,29 +144,29 @@ impl KvStore {
                 Ok(None) => break,
                 Err(e) => return Err(e),
             };
-            self.update_index(&c, offset);
+            Self::update_index(&c, offset, index);
         }
         Ok(())
     }
 
-    fn update_index(&mut self, c: &Command, offset: u64) {
+    fn update_index(c: &Command, offset: u64, index: &mut Index) {
         match *c {
-            Command::Set { ref k, .. } => self.index.insert(k.to_owned(), offset),
-            Command::Remove { k: ref key } => self.index.remove(key),
+            Command::Set { ref k, .. } => index.insert(k.to_owned(), offset),
+            Command::Remove { k: ref key } => index.remove(key),
         };
     }
 
-    fn write_command(&mut self, c: &Command) -> Result<u64> {
-        let offset = get_offset(&mut self.w)?;
-        self.maybe_do_compaction(offset)?;
-        write_command(c, &mut self.w)?;
-        self.w.flush()?; // flush to disk to ensure content can be read later
+    fn write_command(&self, data: &mut KvStoreInternal, c: &Command) -> Result<u64> {
+        let offset = get_offset(&mut data.w)?;
+        self.maybe_do_compaction(&mut data.index, offset)?;
+        write_command(c, &mut data.w)?;
+        data.w.flush()?; // flush to disk to ensure content can be read later
         Ok(offset)
     }
 
-    fn get_val(&mut self, offset: u64) -> Result<String> {
-        Seek::seek(&mut self.r, SeekFrom::Start(offset))?;
-        if let Some(Command::Set { v, .. }) = read_command(&mut self.r)? {
+    fn get_val(&self, data: &mut KvStoreInternal, offset: u64) -> Result<String> {
+        Seek::seek(&mut data.r, SeekFrom::Start(offset))?;
+        if let Some(Command::Set { v, .. }) = read_command(&mut data.r)? {
             Ok(v)
         } else {
             Err(Error::DataCorruption)
@@ -162,14 +175,14 @@ impl KvStore {
 
     // A naive STW log compaction implementation that rewrites the whole KvStore to a
     /// new compacted log file to replace the original one.
-    fn maybe_do_compaction(&mut self, offset: u64) -> Result<()> {
+    fn maybe_do_compaction(&self, index: &mut Index, offset: u64) -> Result<()> {
         if offset < 1024 * 1024 {
             return Ok(())
         }
         let compact_path = self.base_path.join(KVS_COMPACT_LOG_FILE);
         let br = BufReader::new(std::fs::File::open(&self.log_path)?);
         let bw = BufWriter::new(std::fs::File::create(&compact_path)?);
-        self.compact(br, bw)?;
+        self.compact(index, br, bw)?;
 
         std::fs::remove_file(&self.log_path)?;
         std::fs::rename(&compact_path, &self.log_path)?;
@@ -178,7 +191,7 @@ impl KvStore {
         Ok(())
     }
 
-    fn compact(&mut self, mut old_log_reader: BufReader<File>, mut new_log_writer: BufWriter<File>) -> Result<()> {
+    fn compact(&self, index: &mut Index, mut old_log_reader: BufReader<File>, mut new_log_writer: BufWriter<File>) -> Result<()> {
         loop {
             let current_offset = get_offset(&mut old_log_reader)?;
             let result = read_command(&mut old_log_reader)?;
@@ -188,7 +201,7 @@ impl KvStore {
             };
             match c {
                 Command::Set{ ref k, .. } => {
-                    if let Some(offset) = self.index.get(k) {
+                    if let Some(offset) = index.get(k) {
                         if *offset == current_offset {
                             write_command(&c, &mut new_log_writer)?;
                         }
@@ -199,6 +212,16 @@ impl KvStore {
         }
         new_log_writer.flush()?;
         Ok(())
+    }
+}
+
+impl Clone for KvStore {
+    fn clone(&self) -> Self {
+        KvStore {
+            log_path: self.log_path.clone(),
+            base_path: self.base_path.clone(),
+            data: self.data.clone(),
+        }
     }
 }
 
@@ -214,8 +237,9 @@ impl KvsEngine for KvStore {
     /// ```
     fn set(&self, k: String, v: String) -> Result<()> {
         let c = Command::Set { k, v };
-        // let offset = self.write_command(&c)?;
-        // self.update_index(&c, offset);
+        let mut data = self.data.write().unwrap();
+        let offset = self.write_command(&mut *data, &c)?;
+        Self::update_index(&c, offset, &mut data.index);
         Ok(())
     }
 
@@ -229,11 +253,11 @@ impl KvsEngine for KvStore {
     /// assert_eq!(v, "x");
     /// ```
     fn get(&self, k: String) -> Result<Option<String>> {
-        match self.index.get(&k) {
+        let mut data = self.data.write().unwrap();
+        match data.index.get(&k) {
             Some(offset) => {
                 let offset = *offset;
-                panic!("");
-                // self.get_val(offset).map(|v| Some(v))
+                self.get_val(&mut *data, offset).map(|v| Some(v))
             }
             None => Ok(None),
         }
@@ -251,18 +275,19 @@ impl KvsEngine for KvStore {
     /// assert_eq!(s.get("a".to_owned()).unwrap(), None);
     /// ```
     fn remove(&self, k: String) -> Result<()> {
-        if let None = self.index.get(&k) {
+        let mut data = self.data.write().unwrap();
+        if let None = data.index.get(&k) {
             return Err(Error::KeyNotExist);
         }
         let c = Command::Remove { k };
-        // let offset = self.write_command(&c)?;
-        // self.update_index(&c, offset);
+        let offset = self.write_command(&mut *data, &c)?;
+        Self::update_index(&c, offset, &mut data.index);
         Ok(())
     }
 }
 
 /// Engine
-pub trait KvsEngine {
+pub trait KvsEngine: Clone + Send + 'static {
     /// Set the value of a string key to a string.
     fn set(&self, key: String, value: String) -> Result<()>;
     /// Get the string value of a string key. If the key does not exist, return None.
