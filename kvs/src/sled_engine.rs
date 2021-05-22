@@ -21,7 +21,9 @@ impl SledStore {
 
 impl Clone for SledStore {
     fn clone(&self) -> Self {
-        panic!()
+        SledStore{
+            db: self.db.clone()
+        }
     }
 }
 

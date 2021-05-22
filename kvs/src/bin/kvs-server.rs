@@ -7,6 +7,7 @@ use kvs::{Result, KvsEngine};
 use kvs::protocol::{Request, Response};
 use log::{debug, error};
 use std::net::TcpListener;
+use kvs::thread_pool::{NaiveThreadPool, ThreadPool};
 
 fn exit(code: i32, msg: &str) -> ! {
     eprintln!("{}", msg);
@@ -66,12 +67,17 @@ fn main() -> Result<()> {
 }
 
 fn run<E: KvsEngine>(bind: TcpListener, mut store: E) -> Result<()> {
+    let pool = NaiveThreadPool::new(10)?;
     loop {
         debug!("start listening...");
         let connection = bind.accept()?;
-        let (stream, sock_addr) = connection;
-        debug!("connection from {:?}", sock_addr.ip());
-        serve(&mut store, stream)?;
+        let store = store.clone();
+        pool.spawn(|| {
+            let (stream, sock_addr) = connection;
+            let mut store = store;
+            debug!("connection from {:?}", sock_addr.ip());
+            serve(&mut store, stream).unwrap();
+        });
     }
 }
 
