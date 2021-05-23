@@ -91,14 +91,15 @@ impl ThreadPool for SharedQueueThreadPool {
 }
 
 /// Rayon thread pool
-pub struct RayonThreadPool;
+pub struct RayonThreadPool(rayon::ThreadPool);
 
 impl ThreadPool for RayonThreadPool {
-    fn new(_threads: u32) -> Result<Self> {
-        panic!()
+    fn new(threads: u32) -> Result<Self> {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads as usize).build().unwrap();
+        Ok(RayonThreadPool(pool))
     }
 
     fn spawn<F>(&self, job: F) where F: FnOnce() + Send + 'static {
-        panic!()
+        self.0.spawn(job);
     }
 }
