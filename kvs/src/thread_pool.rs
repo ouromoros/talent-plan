@@ -4,7 +4,7 @@ use crate::err::Result;
 use std::thread::spawn;
 
 /// ThreadPool interface
-pub trait ThreadPool {
+pub trait ThreadPool: Send + 'static {
     /// Constructor
     fn new(threads: u32) -> Result<Self> where Self: Sized;
     /// Adds job to one of the threads

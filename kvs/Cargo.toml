@@ -30,6 +30,17 @@ rand_chacha = "0.3.0"
 crossbeam-utils = "0.6.5"
 panic-control = "0.1.4"
 
+[lib]
+bench = false
+
+[[bin]]
+name = "kvs-server"
+bench = false
+
+[[bin]]
+name = "kvs-client"
+bench = false
+
 [[bench]]
 name = "benches"
 harness = false

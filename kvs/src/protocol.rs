@@ -10,6 +10,8 @@ pub enum Request {
     Set(String, String),
     /// Remove command
     Remove(String),
+    /// Shutdown server
+    Shutdown,
 }
 
 /// Kvs protocol request
@@ -103,6 +105,7 @@ impl Request {
                 }
                 Request::Remove(ss[1].to_string())
             },
+            "SHUTDOWN" => Request::Shutdown,
             _ => return Err(ParseError("unknown command".to_string())),
         };
         Ok(req)
@@ -114,6 +117,7 @@ impl Request {
             Request::Get(k) => write_str_array(w, &["GET", k.as_str()]),
             Request::Set(k, v) => write_str_array(w, &["SET", k.as_str(), v.as_str()]),
             Request::Remove(k) => write_str_array(w, &["RM", k.as_str()]),
+            Request::Shutdown => write_str_array(w, &["SHUTDOWN"]),
         }
     }
 

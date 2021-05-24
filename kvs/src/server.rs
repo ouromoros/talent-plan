@@ -31,7 +31,7 @@ impl<P, E> Server<P, E> where P: ThreadPool, E: KvsEngine {
                 let mut engine = engine;
                 debug!("connection from {:?}", sock_addr.ip());
                 match Self::serve(&mut engine, stream) {
-                    Ok(()) => panic!("shouldn't return"),
+                    Ok(()) => {},
                     Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {},
                     Err(e) => error!("Unhandled error: {:?}", e),
                 }
@@ -44,6 +44,7 @@ impl<P, E> Server<P, E> where P: ThreadPool, E: KvsEngine {
         let mut bw = std::io::BufWriter::new(&s);
         loop {
             let req = Request::from_reader(&mut br)?;
+            let mut shutdown = false;
             debug!("request: {:?}", req);
             let rsp = match req {
                 Request::Get(k) => {
@@ -64,10 +65,18 @@ impl<P, E> Server<P, E> where P: ThreadPool, E: KvsEngine {
                         Err(e) => Response::Err(format!("{:?}", e)),
                     }
                 }
+                Request::Shutdown => {
+                    shutdown = true;
+                    Response::Err("OK".to_string())
+                },
             };
             debug!("response: {:?}", rsp);
             rsp.to_writer(&mut bw)?;
             bw.flush()?;
-        }
+            if shutdown {
+                break
+            }
+        };
+        Ok(())
     }
 }

@@ -60,4 +60,18 @@ impl Client {
             _ => Err(Error::ParseError("Unexpected Response Type".to_string())),
         }
     }
+
+    /// Shutdown
+    pub fn shutdown(&mut self) -> Result<()> {
+        let req = Request::Shutdown;
+        self.conn.write_all(req.to_str()?.as_bytes())?;
+        let rsp = Response::from_reader(&mut self.conn)?;
+        match rsp {
+            Response::Err(e) => match e.as_str() {
+                "OK" => Ok(()),
+                e => Err(Error::ServerError(e.to_string())),
+            },
+            _ => Err(Error::ParseError("Unexpected Response Type".to_string())),
+        }
+    }
 }
