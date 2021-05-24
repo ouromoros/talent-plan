@@ -2,10 +2,11 @@
 extern crate clap;
 use clap::App;
 
-use kvs::Result;
+use kvs::{Result, Error};
 use kvs::protocol::{Request, Response};
 use std::net::TcpStream;
 use std::io::Write;
+use kvs::client::Client;
 
 fn exit(code: i32, msg: &str) -> ! {
     eprintln!("{}", msg);
@@ -25,40 +26,42 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let (req, addr) = match matches.subcommand_name() {
+    match matches.subcommand_name() {
         Some("get") => {
             let matches = matches.subcommand_matches("get").unwrap();
             let key = matches.value_of("KEY").unwrap();
             let addr = matches.value_of("addr").unwrap();
-            (Request::Get(key.to_string()), addr)
+            let mut client = Client::new(addr)?;
+            match client.get(key.to_string()) {
+                Ok(Some(v)) => println!("{}", v),
+                Ok(None) => println!("Key not found"),
+                Err(e) => exit(100, format!("Unknown Error: {}", e).as_str()),
+            }
         }
         Some("set") => {
             let matches = matches.subcommand_matches("set").unwrap();
             let key = matches.value_of("KEY").unwrap();
             let value = matches.value_of("VALUE").unwrap();
             let addr = matches.value_of("addr").unwrap();
-            (Request::Set(key.to_string(), value.to_string()), addr)
+            let mut client = Client::new(addr)?;
+            match client.set(key.to_string(), value.to_string()) {
+                Ok(()) => {},
+                Err(e) => exit(100, format!("Unknown error: {:?}", e).as_str()),
+            }
         },
         Some("rm") => {
             let matches = matches.subcommand_matches("rm").unwrap();
             let key = matches.value_of("KEY").unwrap();
             let addr = matches.value_of("addr").unwrap();
-            (Request::Remove(key.to_string()), addr)
-        },
+            let mut client = Client::new(addr)?;
+            match client.remove(key.to_string()) {
+                Ok(()) => {},
+                Err(Error::KeyNotExist) => exit(2, "Key not found"),
+                Err(e) => exit(100, format!("Unknown error: {:?}", e).as_str()),
+            }        },
         None => exit(2, "subcommand not provided"),
         _ => exit(3, "unsupported command"),
     };
-    let mut conn = TcpStream::connect(addr)?;
-    conn.write_all(req.to_str()?.as_bytes())?;
-    let rsp = Response::from_reader(&mut conn)?;
-    match rsp {
-        Response::Value(Some(v)) => println!("{}", v),
-        Response::Value(None) => println!("Key not found"),
-        Response::Err(e) => match e.as_str() {
-            "OK" => {},
-            "KeyNotExist" => exit(10, "Key not found"),
-            e => exit(100, format!("Unknown error: {}", e).as_str()),
-        }
-    }
+
     Ok(())
 }

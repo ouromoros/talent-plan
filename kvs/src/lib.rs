@@ -17,6 +17,8 @@ pub mod protocol;
 
 mod sled_engine;
 pub mod thread_pool;
+pub mod client;
+pub mod server;
 
 pub use sled_engine::SLED_DB_FILE;
 pub use sled_engine::SledStore;
@@ -119,14 +121,13 @@ impl KvStore {
         Ok(kvs)
     }
 
-    fn reload(&self) -> Result<()> {
+    fn reload(&self, data: &mut KvStoreInternal) -> Result<()> {
         let mut wf = OpenOptions::new()
             .create(true)
             .write(true)
             .open(&self.log_path)?;
         Seek::seek(&mut wf, SeekFrom::End(0))?;
         let rf = std::fs::File::open(&self.log_path)?;
-        let mut data = self.data.write().unwrap();
         data.w =  BufWriter::new(wf);
         data.r =  BufReader::new(rf);
         data.index =  HashMap::new();
@@ -158,7 +159,7 @@ impl KvStore {
 
     fn write_command(&self, data: &mut KvStoreInternal, c: &Command) -> Result<u64> {
         let offset = get_offset(&mut data.w)?;
-        self.maybe_do_compaction(&mut data.index, offset)?;
+        self.maybe_do_compaction(data, offset)?;
         write_command(c, &mut data.w)?;
         data.w.flush()?; // flush to disk to ensure content can be read later
         Ok(offset)
@@ -175,19 +176,19 @@ impl KvStore {
 
     // A naive STW log compaction implementation that rewrites the whole KvStore to a
     /// new compacted log file to replace the original one.
-    fn maybe_do_compaction(&self, index: &mut Index, offset: u64) -> Result<()> {
+    fn maybe_do_compaction(&self, data: &mut KvStoreInternal, offset: u64) -> Result<()> {
         if offset < 1024 * 1024 {
             return Ok(())
         }
         let compact_path = self.base_path.join(KVS_COMPACT_LOG_FILE);
         let br = BufReader::new(std::fs::File::open(&self.log_path)?);
         let bw = BufWriter::new(std::fs::File::create(&compact_path)?);
-        self.compact(index, br, bw)?;
+        self.compact(&mut data.index, br, bw)?;
 
         std::fs::remove_file(&self.log_path)?;
         std::fs::rename(&compact_path, &self.log_path)?;
 
-        self.reload()?;
+        self.reload(data)?;
         Ok(())
     }
 
