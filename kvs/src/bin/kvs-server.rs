@@ -3,11 +3,10 @@ extern crate clap;
 
 use clap::App;
 
-use kvs::{Result, KvsEngine};
-use kvs::protocol::{Request, Response};
+use kvs::{Result};
 use log::{debug, error};
-use std::net::TcpListener;
 use kvs::thread_pool::{NaiveThreadPool, ThreadPool, SharedQueueThreadPool};
+use kvs::server::Server;
 
 fn exit(code: i32, msg: &str) -> ! {
     eprintln!("{}", msg);
@@ -51,63 +50,23 @@ fn main() -> Result<()> {
     }
 
     error!("VERSION={} Addr={} Engine={}", env!("CARGO_PKG_VERSION"), addr, engine);
-    let bind = if let Ok(bind) = std::net::TcpListener::bind(addr) {
+    let listener = if let Ok(bind) = std::net::TcpListener::bind(addr) {
         bind
     } else {
         exit(1, "bind addr error!")
     };
     let current_dir = std::env::current_dir()?;
-    if engine == "kvs" {
-        let store = kvs::KvStore::open(&current_dir)?;
-        run(bind, store)
-    } else {
-        let store = kvs::SledStore::open(&current_dir)?;
-        run(bind, store)
-    }
-}
-
-fn run<E: KvsEngine>(bind: TcpListener, mut store: E) -> Result<()> {
     let thread_num = num_cpus::get();
     let pool = SharedQueueThreadPool::new(thread_num as u32)?;
-    loop {
-        debug!("start listening...");
-        let connection = bind.accept()?;
-        let store = store.clone();
-        pool.spawn(|| {
-            let (stream, sock_addr) = connection;
-            let mut store = store;
-            debug!("connection from {:?}", sock_addr.ip());
-            serve(&mut store, stream).unwrap();
-        });
+    if engine == "kvs" {
+        let engine = kvs::KvStore::open(&current_dir)?;
+        let mut server = Server::new(pool, engine, listener);
+        server.run().unwrap();
+    } else {
+        let engine = kvs::SledStore::open(&current_dir)?;
+        let mut server = Server::new(pool, engine, listener);
+        server.run().unwrap();
     }
-}
 
-fn serve<E: KvsEngine>(store: &mut E, s: std::net::TcpStream) -> Result<()> {
-    let mut br = std::io::BufReader::new(&s);
-    let mut bw = std::io::BufWriter::new(&s);
-    let req = Request::from_reader(&mut br)?;
-    debug!("request: {:?}", req);
-    let rsp = match req {
-        Request::Get(k) => {
-            let v = store.get(k)?;
-            Response::Value(v)
-        },
-        Request::Set(k, v) => {
-            let result = store.set(k, v);
-            match result {
-                Ok(()) => Response::Err("OK".to_string()),
-                Err(e) => Response::Err(format!("{:?}", e)),
-            }
-        }
-        Request::Remove(k) => {
-            let result = store.remove(k);
-            match result {
-                Ok(()) => Response::Err("OK".to_string()),
-                Err(e) => Response::Err(format!("{:?}", e)),
-            }
-        }
-    };
-    debug!("response: {:?}", rsp);
-    rsp.to_writer(&mut bw)?;
     Ok(())
 }
