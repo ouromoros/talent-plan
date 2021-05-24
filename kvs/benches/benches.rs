@@ -9,6 +9,8 @@ use std::thread::{spawn, sleep};
 use kvs::client::Client;
 use std::sync::Arc;
 use failure::_core::time::Duration;
+use net2::TcpBuilder;
+use net2::unix::UnixTcpBuilderExt;
 
 fn get_random_value(r: &mut rand_chacha::ChaCha8Rng) -> String {
     let n: u32 = r.gen_range(1..=100000);
@@ -95,7 +97,12 @@ fn bench_server_reads<E: KvsEngine, T: ThreadPool>(b: &mut Bencher, engine: E, p
         engine.set(k, v).unwrap();
     }
 
-    let listener = TcpListener::bind("127.0.0.1:5000").unwrap();
+    let listener = TcpBuilder::new_v4().unwrap()
+        .reuse_address(true).unwrap()
+        .reuse_port(true).unwrap()
+        .bind("127.0.0.1:5000").unwrap()
+        .listen(42).unwrap();
+    // let listener = TcpListener::bind("127.0.0.1:5000").unwrap();
     let mut server = kvs::server::Server::new(pool, engine, listener);
     spawn(move || server.run());
 

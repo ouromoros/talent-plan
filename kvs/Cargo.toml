@@ -29,6 +29,7 @@ rand = "0.8.3"
 rand_chacha = "0.3.0"
 crossbeam-utils = "0.6.5"
 panic-control = "0.1.4"
+net2 = "0.2.37"
 
 [lib]
 bench = false
