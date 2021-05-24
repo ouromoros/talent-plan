@@ -8,6 +8,9 @@ pub enum Error {
     /// File data is corrupted
     #[fail(display = "DataCorruption Error")]
     DataCorruption,
+    /// Server error
+    #[fail(display = "Server Error: {}", _0)]
+    ServerError(String),
     /// Parsing client-server command error
     #[fail(display = "Parse arguments error: {}", _0)]
     ParseError(String),

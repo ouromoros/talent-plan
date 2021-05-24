@@ -29,9 +29,6 @@ type BoxedJob = Box<dyn FnOnce() + Send + 'static>;
 /// SharedQueue thread pool.
 pub struct SharedQueueThreadPool {
     js: crossbeam::Sender<BoxedJob>,
-    jr: crossbeam::Receiver<BoxedJob>,
-    ps: crossbeam::Sender<()>,
-    pr: crossbeam::Receiver<()>,
 }
 
 struct ThreadGuard {
@@ -82,7 +79,7 @@ impl ThreadPool for SharedQueueThreadPool {
             let pr = pr.clone();
             spawn(|| SharedQueueThreadPool::recover_threads(js, jr, ps, pr));
         }
-        Ok(SharedQueueThreadPool{ js, jr, ps, pr })
+        Ok(SharedQueueThreadPool{ js })
     }
 
     fn spawn<F>(&self, job: F) where F: FnOnce() + Send + 'static {
