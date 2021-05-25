@@ -71,7 +71,30 @@ func EncodeRowKeyWithHandle(tableID int64, handle int64) kv.Key {
 
 // DecodeRecordKey decodes the key and gets the tableID, handle.
 func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
-	/* Your code here */
+	if len(key) != RecordRowKeyLen {
+		err = errors.Errorf("RecordKey length is %d, expected %d", len(key), RecordRowKeyLen)
+		return
+	}
+	tPrefix := key[:tablePrefixLength]
+	if tPrefix.Cmp(tablePrefix) != 0 {
+		err = errors.Errorf("tablePrefix not equal to %v", tablePrefix)
+		return
+	}
+	_, tableID, err = codec.DecodeInt(key[tablePrefixLength : tablePrefixLength+idLen])
+	if err != nil {
+		err = errors.Cause(err)
+		return
+	}
+	sep := key[tablePrefixLength+idLen : prefixLen]
+	if sep.Cmp(recordPrefixSep) != 0 {
+		err = errors.Errorf("RecordPrefixSep not equal to %v", recordPrefixSep)
+		return
+	}
+	_, handle, err = codec.DecodeInt(key[prefixLen:RecordRowKeyLen])
+	if err != nil {
+		err = errors.Cause(err)
+		return
+	}
 	return
 }
 
@@ -94,8 +117,28 @@ func EncodeIndexSeekKey(tableID int64, idxID int64, encodedValue []byte) kv.Key 
 
 // DecodeIndexKeyPrefix decodes the key and gets the tableID, indexID, indexValues.
 func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues []byte, err error) {
-	/* Your code here */
-	return tableID, indexID, indexValues, nil
+	tPrefix := key[:tablePrefixLength]
+	if tPrefix.Cmp(tablePrefix) != 0 {
+		err = errors.Errorf("tablePrefix not equal to %v", tablePrefix)
+		return
+	}
+	_, tableID, err = codec.DecodeInt(key[tablePrefixLength : tablePrefixLength+idLen])
+	if err != nil {
+		err = errors.Cause(err)
+		return
+	}
+	sep := key[tablePrefixLength+idLen : prefixLen]
+	if sep.Cmp(indexPrefixSep) != 0 {
+		err = errors.Errorf("RecordPrefixSep not equal to %v", indexPrefixSep)
+		return
+	}
+	_, indexID, err = codec.DecodeInt(key[prefixLen:RecordRowKeyLen])
+	if err != nil {
+		err = errors.Cause(err)
+		return
+	}
+	indexValues = key[RecordRowKeyLen:]
+	return
 }
 
 // DecodeIndexKey decodes the key and gets the tableID, indexID, indexValues.
