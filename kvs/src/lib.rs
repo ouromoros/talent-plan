@@ -3,7 +3,7 @@
 //! A simple key-value store that supports get, set and remove operations
 
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs::OpenOptions, io::{BufReader, Seek, SeekFrom, Write}, path, usize};
+use std::{fs::OpenOptions, io::{BufReader, Seek, SeekFrom, Write}, path, usize};
 use std::{fs::File, io::BufWriter};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -22,7 +22,7 @@ pub mod server;
 
 pub use sled_engine::SLED_DB_FILE;
 pub use sled_engine::SledStore;
-use std::sync::{RwLock, Arc};
+use std::sync::{RwLock, Arc, Mutex};
 
 /// KvStore log file name
 pub const KVS_LOG_FILE: &str = "kvs_log";
@@ -80,63 +80,59 @@ fn get_offset<T: Seek>(br: &mut T) -> Result<u64> {
     Seek::seek(br, SeekFrom::Current(0)).map_err(|e| e.into())
 }
 
-type Index = HashMap<String, u64>;
-
-struct KvStoreInternal {
-    w: BufWriter<File>,
-    r: BufReader<File>,
-    index: Index,
-}
+type Index = chashmap::CHashMap<String, u64>;
 
 /// Implementation of key-value store
 pub struct KvStore {
     base_path: path::PathBuf,
-    log_path: path::PathBuf,
-    data: Arc<RwLock<KvStoreInternal>>,
+    w: Arc<Mutex<BufWriter<File>>>,
+    index: Arc<Index>,
 }
 
 impl KvStore {
     /// Open a new KvStore
     pub fn open(path: &path::Path) -> Result<KvStore> {
-        let log_path = path.join(KVS_LOG_FILE);
+        let log_path = Self::log_path(path);
+        let mut wf = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&log_path)?;
+        Seek::seek(&mut wf, SeekFrom::End(0))?;
+        let mut kvs = KvStore {
+            base_path: path.to_owned(),
+            w: Arc::new(Mutex::new(BufWriter::new(wf))),
+            index: Arc::new(chashmap::CHashMap::new()),
+        };
+        {
+            kvs.init_index(&mut kvs.index)?;
+        }
+        Ok(kvs)
+    }
+
+    fn log_path(base_path: &path::Path) -> path::PathBuf {
+        base_path.join(KVS_LOG_FILE)
+    }
+
+    fn log_reader(&self) {
+        let log_path =
+    }
+
+    fn reload(&self, index: &mut Index, w: &mut BufWriter<File>) -> Result<()> {
+        let log_path = Self::log_path(&self.base_path);
         let mut wf = OpenOptions::new()
             .create(true)
             .write(true)
             .open(&log_path)?;
         Seek::seek(&mut wf, SeekFrom::End(0))?;
         let rf = std::fs::File::open(&log_path)?;
-        let mut kvs = KvStore {
-            base_path: path.to_owned(),
-            log_path,
-            data: Arc::new(RwLock::new(KvStoreInternal{
-                w: BufWriter::new(wf),
-                r: BufReader::new(rf),
-                index: HashMap::new(),
-            })),
-        };
-        {
-            let mut data = kvs.data.write().unwrap();
-            kvs.init_index(&mut data.index)?;
-        }
-        Ok(kvs)
-    }
-
-    fn reload(&self, data: &mut KvStoreInternal) -> Result<()> {
-        let mut wf = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(&self.log_path)?;
-        Seek::seek(&mut wf, SeekFrom::End(0))?;
-        let rf = std::fs::File::open(&self.log_path)?;
-        data.w =  BufWriter::new(wf);
-        data.r =  BufReader::new(rf);
-        data.index =  HashMap::new();
-        self.init_index(&mut data.index)
+        *w =  BufWriter::new(wf);
+        *index =  chashmap::CHashMap::new();
+        self.init_index(index)
     }
 
     /// Init index for Read and Remove command
     fn init_index(&self, index: &mut Index) -> Result<()> {
-        let mut f = File::open(&self.log_path)?;
+        let mut f = File::open(Self::log_path(&self.base_path))?;
         let mut br = BufReader::new(&mut f);
         loop {
             let offset = get_offset(&mut br)?;
@@ -174,7 +170,7 @@ impl KvStore {
         }
     }
 
-    // A naive STW log compaction implementation that rewrites the whole KvStore to a
+    /// A naive STW log compaction implementation that rewrites the whole KvStore to a
     /// new compacted log file to replace the original one.
     fn maybe_do_compaction(&self, data: &mut KvStoreInternal, offset: u64) -> Result<()> {
         if offset < 1024 * 1024 {
