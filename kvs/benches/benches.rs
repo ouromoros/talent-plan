@@ -115,7 +115,7 @@ fn bench_server_reads<E: KvsEngine, T: ThreadPool>(b: &mut Bencher, engine: E, p
             let s = s.clone();
             client_pool.spawn(move || {
                 let mut client = Client::new("127.0.0.1:5000").unwrap();
-                for i in 0..1 {
+                for i in 0..100 {
                     client.get(keys[0].to_string()).expect("get error");
                 }
                 s.send(()).expect("send error");
@@ -132,7 +132,7 @@ fn bench_server_reads<E: KvsEngine, T: ThreadPool>(b: &mut Bencher, engine: E, p
 
 pub fn bench_threads(c: &mut Criterion) {
     let mut group = c.benchmark_group("read_shared");
-    for num_core in [1, 2, 4, 8, 16].iter() {
+    for num_core in [1, 2, 4].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(num_core), num_core, |b, &num_core| {
             let temp_dir = TempDir::new().expect("unable to create temporary working directory");
             let store = KvStore::open(temp_dir.path()).unwrap();
