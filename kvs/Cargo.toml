@@ -44,6 +44,9 @@ bench = false
 name = "kvs-client"
 bench = false
 
+[profile.bench]
+debug = true
+
 [[bench]]
 name = "benches"
 harness = false

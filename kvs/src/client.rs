@@ -3,7 +3,7 @@
 use std::net::{TcpStream, ToSocketAddrs};
 use crate::err::Result;
 use crate::protocol::{Request, Response};
-use std::io::Write;
+use std::io::{Write, BufReader};
 use crate::Error;
 
 /// KvsClient
@@ -22,7 +22,7 @@ impl Client {
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
         let req = Request::Get(key);
         self.conn.write_all(req.to_str()?.as_bytes())?;
-        let rsp = Response::from_reader(&mut self.conn)?;
+        let rsp = Response::from_reader(&mut BufReader::new(&mut self.conn))?;
         match rsp {
             Response::Value(v) => Ok(v),
             Response::Err(e) => match e.as_str() {
@@ -36,7 +36,7 @@ impl Client {
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         let req = Request::Set(key, value);
         self.conn.write_all(req.to_str()?.as_bytes())?;
-        let rsp = Response::from_reader(&mut self.conn)?;
+        let rsp = Response::from_reader(&mut BufReader::new(&mut self.conn))?;
         match rsp {
             Response::Err(e) => match e.as_str() {
                 "OK" => Ok(()),
@@ -50,7 +50,7 @@ impl Client {
     pub fn remove(&mut self, key: String) -> Result<()> {
         let req = Request::Remove(key);
         self.conn.write_all(req.to_str()?.as_bytes())?;
-        let rsp = Response::from_reader(&mut self.conn)?;
+        let rsp = Response::from_reader(&mut BufReader::new(&mut self.conn))?;
         match rsp {
             Response::Err(e) => match e.as_str() {
                 "OK" => Ok(()),
@@ -65,7 +65,7 @@ impl Client {
     pub fn shutdown(&mut self) -> Result<()> {
         let req = Request::Shutdown;
         self.conn.write_all(req.to_str()?.as_bytes())?;
-        let rsp = Response::from_reader(&mut self.conn)?;
+        let rsp = Response::from_reader(&mut BufReader::new(&mut self.conn))?;
         match rsp {
             Response::Err(e) => match e.as_str() {
                 "OK" => Ok(()),
