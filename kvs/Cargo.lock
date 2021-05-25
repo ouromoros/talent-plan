@@ -531,6 +531,7 @@ dependencies = [
  "predicates",
  "rand",
  "rand_chacha",
+ "rayon",
  "serde",
  "serde_json",
  "sled",
