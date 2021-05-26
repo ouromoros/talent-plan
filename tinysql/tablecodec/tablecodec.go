@@ -117,6 +117,10 @@ func EncodeIndexSeekKey(tableID int64, idxID int64, encodedValue []byte) kv.Key 
 
 // DecodeIndexKeyPrefix decodes the key and gets the tableID, indexID, indexValues.
 func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues []byte, err error) {
+	if len(key) < RecordRowKeyLen {
+		err = errors.Errorf("RecordKey length is %d, expected more than %d", len(key), RecordRowKeyLen)
+		return
+	}
 	tPrefix := key[:tablePrefixLength]
 	if tPrefix.Cmp(tablePrefix) != 0 {
 		err = errors.Errorf("tablePrefix not equal to %v", tablePrefix)
