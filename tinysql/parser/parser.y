@@ -811,6 +811,7 @@ import (
 	InsertValues			"Rest part of INSERT/REPLACE INTO statement"
 	JoinTable 			"join table"
 	JoinType			"join type"
+	OnCondition         "on condition"
 	LocationLabelList		"location label name list"
 	LikeEscapeOpt 			"like escape option"
 	LikeTableWithOrWithoutParen	"LIKE table_name or ( LIKE table_name )"
@@ -2099,8 +2100,8 @@ DropTableStmt:
 
 OptTemporary:
 	  /* empty */ { $$ = false; }
-	| "TEMPORARY" 
-	{ 
+	| "TEMPORARY"
+	{
 		$$ = true
 		yylex.AppendError(yylex.Errorf("TiDB doesn't support TEMPORARY TABLE, TEMPORARY will be parsed but ignored."))
 		parser.lastErrorAsWarn()
@@ -3810,6 +3811,16 @@ JoinTable:
 		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Tp: ast.CrossJoin}
 	}
 	/* Your code here. */
+|   TableRef JoinType CrossOpt TableRef OnCondition
+    {
+        $$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $4.(ast.ResultSetNode), Tp: $2.(ast.JoinType), On: $5.(*ast.OnCondition)}
+    }
+
+OnCondition:
+    "ON" Expression
+    {
+       $$ = &ast.OnCondition{ Expr: $2.(ast.ExprNode) }
+    }
 
 JoinType:
 	"LEFT"
@@ -4074,7 +4085,7 @@ HintStorageTypeAndTable:
 			Tables:    $3.([]ast.HintTable),
 		}
 	}
-	
+
 QueryBlockOpt:
 	{
 		$$ = model.NewCIStr("")
