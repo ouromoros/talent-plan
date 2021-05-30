@@ -1,38 +1,95 @@
 package standalone_storage
 
 import (
+	badger "github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
 // StandAloneStorage is an implementation of `Storage` for a single-node TinyKV instance. It does not
 // communicate with other nodes and all data is stored locally.
 type StandAloneStorage struct {
-	// Your Data Here (1).
+	conf *config.Config
+	db   *badger.DB
 }
 
 func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
-	// Your Code Here (1).
-	return nil
+	return &StandAloneStorage{conf: conf, db: nil}
 }
 
 func (s *StandAloneStorage) Start() error {
-	// Your Code Here (1).
+	opts := badger.DefaultOptions
+	opts.Dir = s.conf.DBPath
+	db, err := badger.Open(opts)
+	if err != nil {
+		return err
+	}
+	s.db = db
 	return nil
 }
 
 func (s *StandAloneStorage) Stop() error {
-	// Your Code Here (1).
+	err := s.db.Close()
+	if err != nil {
+		return err
+	}
+	s.db = nil
 	return nil
 }
 
 func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
-	// Your Code Here (1).
-	return nil, nil
+	return &StandAloneStorageReader{txn: s.db.NewTransaction(false)}, nil
 }
 
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	// Your Code Here (1).
 	return nil
+}
+
+type StandAloneStorageReader struct {
+	txn *badger.Txn
+}
+
+func (r *StandAloneStorageReader) GetCF(cf string, key []byte) ([]byte, error) {
+	item, err := r.txn.Get(engine_util.KeyWithCF(cf, key))
+	if err != nil {
+		return nil, err
+	}
+	return item.Value()
+}
+
+func (r *StandAloneStorageReader) IterCF(cf string) engine_util.DBIterator {
+	opts := badger.DefaultIteratorOptions
+	it := r.txn.NewIterator(opts)
+	return &StandAloneStorageIterator{it: it}
+}
+
+func (r *StandAloneStorageReader) Close() {
+	r.txn.Discard()
+}
+
+type StandAloneStorageIterator struct {
+	it *badger.Iterator
+}
+
+func (i *StandAloneStorageIterator) Item() engine_util.DBItem {
+	return i.it.Item()
+}
+
+func (i *StandAloneStorageIterator) Valid() bool {
+	return i.it.Valid()
+}
+
+func (i *StandAloneStorageIterator) Next() {
+	i.it.Next()
+}
+
+func (i *StandAloneStorageIterator) Seek(key []byte) {
+	i.it.Seek(key)
+}
+
+func (i *StandAloneStorageIterator) Close() {
+	i.it.Close()
 }
