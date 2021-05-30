@@ -77,7 +77,7 @@ func (r *StandAloneStorageReader) GetCF(cf string, key []byte) ([]byte, error) {
 func (r *StandAloneStorageReader) IterCF(cf string) engine_util.DBIterator {
 	opts := badger.DefaultIteratorOptions
 	it := r.txn.NewIterator(opts)
-	return &StandAloneStorageIterator{it: it}
+	return &StandAloneStorageIterator{it: it, cf: cf}
 }
 
 func (r *StandAloneStorageReader) Close() {
@@ -86,6 +86,7 @@ func (r *StandAloneStorageReader) Close() {
 
 type StandAloneStorageIterator struct {
 	it *badger.Iterator
+	cf string
 }
 
 func (i *StandAloneStorageIterator) Item() engine_util.DBItem {
@@ -101,7 +102,7 @@ func (i *StandAloneStorageIterator) Next() {
 }
 
 func (i *StandAloneStorageIterator) Seek(key []byte) {
-	i.it.Seek(key)
+	i.it.Seek(engine_util.KeyWithCF(i.cf, key))
 }
 
 func (i *StandAloneStorageIterator) Close() {
