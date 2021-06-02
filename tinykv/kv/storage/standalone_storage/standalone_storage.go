@@ -22,6 +22,7 @@ func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 func (s *StandAloneStorage) Start() error {
 	opts := badger.DefaultOptions
 	opts.Dir = s.conf.DBPath
+	opts.ValueDir = s.conf.DBPath
 	db, err := badger.Open(opts)
 	if err != nil {
 		return err
@@ -68,6 +69,9 @@ type StandAloneStorageReader struct {
 
 func (r *StandAloneStorageReader) GetCF(cf string, key []byte) ([]byte, error) {
 	item, err := r.txn.Get(engine_util.KeyWithCF(cf, key))
+	if err == badger.ErrKeyNotFound {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +94,11 @@ type StandAloneStorageIterator struct {
 }
 
 func (i *StandAloneStorageIterator) Item() engine_util.DBItem {
-	return i.it.Item()
+	item := i.it.Item()
+	if item == nil {
+		return nil
+	}
+	return &Item{item: item, cf: i.cf}
 }
 
 func (i *StandAloneStorageIterator) Valid() bool {
@@ -107,4 +115,30 @@ func (i *StandAloneStorageIterator) Seek(key []byte) {
 
 func (i *StandAloneStorageIterator) Close() {
 	i.it.Close()
+}
+
+type Item struct {
+	cf   string
+	item *badger.Item
+}
+
+func (i *Item) Key() []byte {
+	return engine_util.RemoveCFFromKey(i.cf, i.item.Key())
+}
+
+func (i *Item) KeyCopy(dst []byte) []byte {
+	copy(dst, i.Key())
+	return dst
+}
+
+func (i *Item) Value() ([]byte, error) {
+	return i.item.Value()
+}
+
+func (i *Item) ValueSize() int {
+	return i.item.ValueSize()
+}
+
+func (i *Item) ValueCopy(dst []byte) ([]byte, error) {
+	return i.item.ValueCopy(dst)
 }
