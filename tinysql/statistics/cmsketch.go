@@ -49,7 +49,20 @@ func (c *CMSketch) InsertBytes(bytes []byte) {
 
 // insertBytesByCount adds the bytes value into the TopN (if value already in TopN) or CM Sketch by delta, this does not updates c.defaultValue.
 func (c *CMSketch) insertBytesByCount(bytes []byte, count uint64) {
-	// TODO: implement the insert method.
+	h1, h2 := murmur3.Sum128(bytes)
+	estimate := c.queryHashValue(h1, h2)
+	update := count - estimate
+	c.count += count
+
+	startRow := h1 % uint64(c.depth)
+	startCol := h2 % uint64(c.width)
+	col := startCol
+	row := startRow
+	for i := int32(0); i < c.depth; i++ {
+		c.table[row][col] += uint32(update)
+		row = (row + 1) % uint64(c.depth)
+		col = (col + 13) % uint64(c.width)
+	}
 }
 
 func (c *CMSketch) queryValue(sc *stmtctx.StatementContext, val types.Datum) (uint64, error) {
@@ -67,8 +80,21 @@ func (c *CMSketch) QueryBytes(d []byte) uint64 {
 }
 
 func (c *CMSketch) queryHashValue(h1, h2 uint64) uint64 {
-	// TODO: implement the query method.
-	return uint64(0)
+	minCount := c.count
+
+	startRow := h1 % uint64(c.depth)
+	startCol := h2 % uint64(c.width)
+	col := startCol
+	row := startRow
+	for i := int32(0); i < c.depth; i++ {
+		count := uint64(c.table[row][col])
+		if count < minCount {
+			minCount = count
+		}
+		row = (row + 1) % uint64(c.depth)
+		col = (col + 13) % uint64(c.width)
+	}
+	return minCount
 }
 
 // MergeCMSketch merges two CM Sketch.
