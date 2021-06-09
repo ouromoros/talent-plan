@@ -14,7 +14,10 @@
 
 package raft
 
-import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+import (
+	"errors"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+)
 
 // RaftLog manage the log entries, its struct look like:
 //
@@ -50,13 +53,33 @@ type RaftLog struct {
 	pendingSnapshot *pb.Snapshot
 
 	// Your Data Here (2A).
+	pendingEntries []pb.Entry
 }
 
 // newLog returns log using the given storage. It recovers the log
 // to the state that it just commits and applies the latest snapshot.
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
-	return nil
+	hardState, _, err := storage.InitialState()
+	if err != nil {
+		panic(err)
+	}
+	firstIndex, err := storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	lastIndex, err := storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+	log := &RaftLog{
+		storage:   storage,
+		committed: hardState.Commit,
+		applied:   firstIndex - 1,
+		stabled:   lastIndex,
+		entries:   make([]pb.Entry, 0),
+	}
+	return log
 }
 
 // We need to compact the log entries in some point of time like
@@ -69,23 +92,57 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	return nil
+	return l.entries
 }
 
 // nextEnts returns all the committed but not applied entries
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
-	return nil
+	if l.applied <= l.committed {
+		return nil
+	}
+	ents, err := l.storage.Entries(l.applied+1, l.committed+1)
+	if err != nil {
+		panic(err)
+	}
+	return ents
 }
 
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return 0
+	return l.stabled + uint64(len(l.entries))
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	return 0, nil
+	if i > l.LastIndex() {
+		return 0, errors.New("index out of range")
+	}
+	if i > l.stabled {
+		return l.entries[i-l.stabled-1].Term, nil
+	}
+	return l.storage.Term(i)
+}
+
+// Used by propose new Entry, Term and Data should be set
+func (l *RaftLog) addEntry(ent pb.Entry) {
+	l.entries = append(l.entries, pb.Entry{
+		Index: l.LastIndex(),
+		Term:  ent.Term,
+		Data:  ent.Data,
+	})
+}
+
+// Used by follower for appendEntries
+func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex uint64, ents []pb.Entry) bool {
+	t, err := l.Term(prevIndex)
+	if err != nil {
+		return false
+	}
+	if t != prevTerm {
+		return false
+	}
+	return true
 }
