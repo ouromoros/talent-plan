@@ -93,14 +93,14 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	if len(l.entries) < 0 {
+	if len(l.pendingEntries) == 0 {
 		return nil
 	}
-	firstUnstable := l.stabled - l.entries[0].Index + 1
-	if firstUnstable >= uint64(len(l.entries)) {
-		return nil
-	}
-	return l.entries[firstUnstable:]
+	//firstUnstable := l.stabled - l.pendingEntries[0].Index + 1
+	//if firstUnstable >= uint64(len(l.pendingEntries)) {
+	//	return nil
+	//}
+	return l.getMergeEntries(l.pendingEntries)
 }
 
 // nextEnts returns all the committed but not applied entries
@@ -113,8 +113,8 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
 	li := l.stabled
-	if len(l.entries) > 0 {
-		li = mathutil.MaxUint64(li, l.entries[len(l.entries)-1].Index)
+	if len(l.pendingEntries) > 0 {
+		li = mathutil.MaxUint64(li, l.pendingEntries[len(l.pendingEntries)-1].Index)
 	}
 	return li
 }
@@ -130,7 +130,7 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 
 // Used by propose new Entry
 func (l *RaftLog) addEntry(term uint64, data []byte) {
-	l.entries = append(l.entries, pb.Entry{
+	l.pendingEntries = append(l.pendingEntries, pb.Entry{
 		Index: l.LastIndex() + 1,
 		Term:  term,
 		Data:  data,
@@ -150,7 +150,7 @@ func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex u
 		return true
 	}
 	mergeEnts := l.getMergeEntries(ents)
-	l.entries = mergeEnts
+	l.pendingEntries = mergeEntries(l.pendingEntries, mergeEnts)
 	l.committed = mathutil.MaxUint64(commitIndex, l.committed)
 	return true
 }
@@ -178,7 +178,7 @@ func (l *RaftLog) getMergeEntries(ents []pb.Entry) []pb.Entry {
 			return ents[i-firstEntIndex:]
 		}
 	}
-	return ents[checkLastIndex-firstEntIndex:]
+	return ents[checkLastIndex-firstEntIndex+1:]
 }
 
 func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
@@ -189,16 +189,17 @@ func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
 	stableEntries := make([]pb.Entry, 0)
 	unstableEntries := make([]pb.Entry, 0)
 	var err error
-	if startIndex < l.stabled {
+	l.storage.LastIndex()
+	if startIndex <= l.stabled {
 		stableEntries, err = l.storage.Entries(startIndex, mathutil.MinUint64(endIndex-1, l.stabled)+1)
 		if err != nil {
 			panic(err)
 		}
 	}
-	if len(l.entries) > 0 {
-		start := mathutil.MaxUint64(l.entries[0].Index, startIndex)
-		end := mathutil.MinUint64(l.entries[len(l.entries)-1].Index+1, endIndex)
-		unstableEntries = l.entries[start-l.entries[0].Index : end-l.entries[0].Index]
+	if len(l.pendingEntries) > 0 {
+		start := mathutil.MaxUint64(l.pendingEntries[0].Index, startIndex)
+		end := mathutil.MinUint64(l.pendingEntries[len(l.pendingEntries)-1].Index+1, endIndex)
+		unstableEntries = l.pendingEntries[start-l.pendingEntries[0].Index : end-l.pendingEntries[0].Index]
 	}
 	return mergeEntries(stableEntries, unstableEntries)
 }

@@ -373,6 +373,7 @@ func (r *Raft) Step(m pb.Message) error {
 			return errors.New("only leader can propose new entry")
 		}
 		r.RaftLog.addEntry(r.Term, m.Entries[0].Data)
+		r.maybeIncrCommitIndex()
 		for pid := range r.Prs {
 			if pid == r.id {
 				continue
@@ -555,10 +556,14 @@ func (r *Raft) stepLeader(m pb.Message) {
 		if m.Term < r.Term {
 			break
 		}
-		if r.Prs[m.From].Match < m.Index {
-			r.Prs[m.From].Match = m.Index
-			r.Prs[m.From].Next = m.Index + 1
-			r.maybeIncrCommitIndex()
+		if m.Reject {
+			r.Prs[m.From].Next -= 1
+		} else {
+			if r.Prs[m.From].Match < m.Index {
+				r.Prs[m.From].Match = m.Index
+				r.Prs[m.From].Next = m.Index + 1
+				r.maybeIncrCommitIndex()
+			}
 		}
 	case pb.MessageType_MsgRequestVote:
 		reject := pb.Message{
