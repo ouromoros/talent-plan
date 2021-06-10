@@ -15,7 +15,6 @@
 package raft
 
 import (
-	"errors"
 	"github.com/cznic/mathutil"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
@@ -73,12 +72,16 @@ func newLog(storage Storage) *RaftLog {
 	if err != nil {
 		panic(err)
 	}
+	entries, err := storage.Entries(firstIndex, lastIndex + 1)
+	if err != nil {
+		panic(err)
+	}
 	log := &RaftLog{
 		storage:   storage,
 		committed: hardState.Commit,
 		applied:   firstIndex - 1,
 		stabled:   lastIndex,
-		entries:   make([]pb.Entry, 0),
+		entries:   entries,
 	}
 	return log
 }
@@ -93,14 +96,7 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	if len(l.pendingEntries) == 0 {
-		return nil
-	}
-	//firstUnstable := l.stabled - l.pendingEntries[0].Index + 1
-	//if firstUnstable >= uint64(len(l.pendingEntries)) {
-	//	return nil
-	//}
-	return l.getMergeEntries(l.pendingEntries)
+	return l.pendingEntries
 }
 
 // nextEnts returns all the committed but not applied entries
@@ -112,29 +108,30 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	li := l.stabled
-	if len(l.pendingEntries) > 0 {
-		li = mathutil.MaxUint64(li, l.pendingEntries[len(l.pendingEntries)-1].Index)
+	if len(l.entries) == 0 {
+		return 0
 	}
-	return li
+	return l.entries[len(l.entries)-1].Index
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	if i > l.stabled {
-		return 0, errors.New("index out of range")
+	if i == 0 {
+		return 0, nil
 	}
-	return l.storage.Term(i)
+	return l.entries[i-l.entries[0].Index].Term, nil
 }
 
 // Used by propose new Entry
 func (l *RaftLog) addEntry(term uint64, data []byte) {
-	l.pendingEntries = append(l.pendingEntries, pb.Entry{
+	newEntry := pb.Entry{
 		Index: l.LastIndex() + 1,
-		Term:  term,
-		Data:  data,
-	})
+		Term: term,
+		Data: data,
+	}
+	l.entries = append(l.entries, newEntry)
+	l.pendingEntries = append(l.pendingEntries, newEntry)
 }
 
 // Used by follower for appendEntries
@@ -151,6 +148,7 @@ func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex u
 	}
 	mergeEnts := l.getMergeEntries(ents)
 	l.pendingEntries = mergeEntries(l.pendingEntries, mergeEnts)
+	l.entries = mergeEntries(l.entries, mergeEnts)
 	l.committed = mathutil.MaxUint64(commitIndex, l.committed)
 	return true
 }
@@ -185,6 +183,7 @@ func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
 	if startIndex > l.LastIndex() {
 		return []pb.Entry{}
 	}
+	return l.entries[startIndex-l.entries[0].Index:endIndex-l.entries[0].Index]
 
 	stableEntries := make([]pb.Entry, 0)
 	unstableEntries := make([]pb.Entry, 0)

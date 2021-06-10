@@ -175,16 +175,7 @@ func newRaft(c *Config) *Raft {
 	if err != nil {
 		panic(err)
 	}
-	lastIndex, err := c.Storage.LastIndex()
-	if err != nil {
-		panic(err)
-	}
-	rlog := &RaftLog{
-		storage:   c.Storage,
-		committed: hardState.Commit,
-		applied:   c.Applied,
-		stabled:   lastIndex,
-	}
+	rlog := newLog(c.Storage)
 	logger := log.New()
 	prs := make(map[uint64]*Progress, 0)
 	for _, pid := range c.peers {
@@ -208,6 +199,14 @@ func newRaft(c *Config) *Raft {
 	return r
 }
 
+func (r *Raft) sendAppends() {
+	for pid := range r.Prs {
+		if pid == r.id {
+			continue
+		}
+		r.sendAppend(pid)
+	}
+}
 // sendAppend sends an append RPC with new entries (if any) and the
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
@@ -338,12 +337,12 @@ func (r *Raft) becomeLeader() {
 		r.Prs[pid].Next = 1
 		r.Prs[pid].Match = 0
 	}
-	r.Step(pb.Message{
-		MsgType: pb.MessageType_MsgPropose,
-		Entries: []*pb.Entry{
-			{Data: nil},
-		},
-	})
+	//r.Step(pb.Message{
+	//	MsgType: pb.MessageType_MsgPropose,
+	//	Entries: []*pb.Entry{
+	//		{Data: nil},
+	//	},
+	//})
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -461,6 +460,7 @@ func (r *Raft) stepCandidate(m pb.Message) {
 		r.votes[m.From] = true
 		if r.countVotes() >= r.majorityCount() {
 			r.becomeLeader()
+			r.sendAppends()
 		}
 	case pb.MessageType_MsgRequestVote:
 		reject := pb.Message{
