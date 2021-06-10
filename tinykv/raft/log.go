@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"github.com/cznic/mathutil"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -92,46 +93,47 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	return l.entries
+	if len(l.entries) < 0 {
+		return nil
+	}
+	firstUnstable := l.stabled - l.entries[0].Index + 1
+	if firstUnstable >= uint64(len(l.entries)) {
+		return nil
+	}
+	return l.entries[firstUnstable:]
 }
 
 // nextEnts returns all the committed but not applied entries
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
-	if l.applied <= l.committed {
-		return nil
-	}
-	ents, err := l.storage.Entries(l.applied+1, l.committed+1)
-	if err != nil {
-		panic(err)
-	}
-	return ents
+	return l.getEntries(l.applied+1, l.committed+1)
 }
 
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return l.stabled + uint64(len(l.entries))
+	li := l.stabled
+	if len(l.entries) > 0 {
+		li = mathutil.MaxUint64(li, l.entries[len(l.entries)-1].Index)
+	}
+	return li
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	if i > l.LastIndex() {
-		return 0, errors.New("index out of range")
-	}
 	if i > l.stabled {
-		return l.entries[i-l.stabled-1].Term, nil
+		return 0, errors.New("index out of range")
 	}
 	return l.storage.Term(i)
 }
 
-// Used by propose new Entry, Term and Data should be set
-func (l *RaftLog) addEntry(ent pb.Entry) {
+// Used by propose new Entry
+func (l *RaftLog) addEntry(term uint64, data []byte) {
 	l.entries = append(l.entries, pb.Entry{
-		Index: l.LastIndex(),
-		Term:  ent.Term,
-		Data:  ent.Data,
+		Index: l.LastIndex() + 1,
+		Term:  term,
+		Data:  data,
 	})
 }
 
@@ -144,5 +146,70 @@ func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex u
 	if t != prevTerm {
 		return false
 	}
+	if len(ents) <= 0 {
+		return true
+	}
+	mergeEnts := l.getMergeEntries(ents)
+	l.entries = mergeEnts
+	l.committed = mathutil.MaxUint64(commitIndex, l.committed)
 	return true
+}
+
+// Return entries that are to be merged.
+func (l *RaftLog) getMergeEntries(ents []pb.Entry) []pb.Entry {
+	if len(ents) <= 0 {
+		return nil
+	}
+	firstEntIndex := ents[0].Index
+	lastEntIndex := ents[len(ents)-1].Index
+	firstStorageIndex, err := l.storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	checkFirstIndex := mathutil.MaxUint64(firstEntIndex, firstStorageIndex)
+	checkLastIndex := mathutil.MinUint64(lastEntIndex, l.stabled)
+	for i := checkFirstIndex; i < checkLastIndex; i++ {
+		storageTerm, err := l.storage.Term(i)
+		if err != nil {
+			panic(err)
+		}
+		entTerm := ents[i-firstEntIndex].Index
+		if entTerm != storageTerm {
+			return ents[i-firstEntIndex:]
+		}
+	}
+	return ents[checkLastIndex-firstEntIndex:]
+}
+
+func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
+	if startIndex > l.LastIndex() {
+		return []pb.Entry{}
+	}
+
+	stableEntries := make([]pb.Entry, 0)
+	unstableEntries := make([]pb.Entry, 0)
+	var err error
+	if startIndex < l.stabled {
+		stableEntries, err = l.storage.Entries(startIndex, mathutil.MinUint64(endIndex-1, l.stabled)+1)
+		if err != nil {
+			panic(err)
+		}
+	}
+	if len(l.entries) > 0 {
+		start := mathutil.MaxUint64(l.entries[0].Index, startIndex)
+		end := mathutil.MinUint64(l.entries[len(l.entries)-1].Index+1, endIndex)
+		unstableEntries = l.entries[start-l.entries[0].Index : end-l.entries[0].Index]
+	}
+	return mergeEntries(stableEntries, unstableEntries)
+}
+
+func mergeEntries(stable []pb.Entry, unstable []pb.Entry) []pb.Entry {
+	if len(unstable) == 0 {
+		return stable
+	}
+	if len(stable) == 0 {
+		return unstable
+	}
+	cut := unstable[0].Index - stable[0].Index
+	return append(stable[:cut], unstable...)
 }

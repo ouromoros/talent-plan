@@ -16,9 +16,12 @@ package raft
 
 import (
 	"errors"
+	"github.com/cznic/mathutil"
+	"github.com/cznic/sortutil"
 	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"math/rand"
+	"sort"
 )
 
 // None is a placeholder node ID used when there is no leader.
@@ -209,25 +212,19 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	nextIndex := r.Prs[to].Next
-	appendEntries := make([]*pb.Entry, 0)
 	prevIndex := nextIndex - 1
 	prevTerm := r.Term
 	if nextIndex < r.RaftLog.stabled {
-		storageEntries, err := r.RaftLog.storage.Entries(nextIndex, r.RaftLog.stabled-1)
-		if err != nil {
-			panic(err)
-		}
-		for _, entry := range storageEntries {
-			appendEntries = append(appendEntries, &entry)
-		}
+		var err error
 		prevTerm, err = r.RaftLog.Term(prevIndex)
 		if err != nil {
 			panic(err)
 		}
 	}
-	unstableEntries := r.RaftLog.entries[nextIndex-r.RaftLog.stabled-1:]
-	for _, entry := range unstableEntries {
-		appendEntries = append(appendEntries, &entry)
+	appendEntries := make([]*pb.Entry, 0)
+	ents := r.RaftLog.getEntries(nextIndex, r.RaftLog.LastIndex()+1)
+	for _, ent := range ents {
+		appendEntries = append(appendEntries, &ent)
 	}
 	appendMsg := pb.Message{
 		MsgType: pb.MessageType_MsgAppend,
@@ -334,20 +331,19 @@ func (r *Raft) becomeLeader() {
 	// NOTE: Leader should propose a noop entry on its term
 	r.heartbeatElapsed = 0
 	r.State = StateLeader
-	r.Step(pb.Message{
-		MsgType: pb.MessageType_MsgPropose,
-		Entries: []*pb.Entry{
-			{Data: []byte{}},
-		},
-	})
 	for pid := range r.Prs {
 		if pid == r.id {
 			continue
 		}
 		r.Prs[pid].Next = 1
 		r.Prs[pid].Match = 0
-		r.sendAppend(pid)
 	}
+	r.Step(pb.Message{
+		MsgType: pb.MessageType_MsgPropose,
+		Entries: []*pb.Entry{
+			{Data: nil},
+		},
+	})
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -376,6 +372,14 @@ func (r *Raft) Step(m pb.Message) error {
 		if r.State != StateLeader {
 			return errors.New("only leader can propose new entry")
 		}
+		r.RaftLog.addEntry(r.Term, m.Entries[0].Data)
+		for pid := range r.Prs {
+			if pid == r.id {
+				continue
+			}
+			r.sendAppend(pid)
+		}
+		return nil
 	}
 
 	if m.Term > r.Term {
@@ -399,6 +403,21 @@ func (r *Raft) Step(m pb.Message) error {
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
 	r.resetElectionTimeout()
+	ents := make([]pb.Entry, 0, len(m.Entries))
+	for _, ent := range m.Entries {
+		ents = append(ents, *ent)
+	}
+	match := r.RaftLog.appendEntries(m.LogTerm, m.Index, m.Commit, ents)
+	msg := pb.Message{
+		MsgType: pb.MessageType_MsgAppendResponse,
+		LogTerm: m.LogTerm,
+		Index:   m.Index + uint64(len(m.Entries)),
+		Term:    r.Term,
+		From:    r.id,
+		To:      m.From,
+		Reject:  !match,
+	}
+	r.push(msg)
 }
 
 // handleHeartbeat handle Heartbeat RPC request
@@ -527,8 +546,6 @@ func (r *Raft) stepFollower(m pb.Message) {
 			break
 		}
 		r.handleAppendEntries(m)
-	default:
-
 	}
 }
 
@@ -537,6 +554,11 @@ func (r *Raft) stepLeader(m pb.Message) {
 	case pb.MessageType_MsgAppendResponse:
 		if m.Term < r.Term {
 			break
+		}
+		if r.Prs[m.From].Match < m.Index {
+			r.Prs[m.From].Match = m.Index
+			r.Prs[m.From].Next = m.Index + 1
+			r.maybeIncrCommitIndex()
 		}
 	case pb.MessageType_MsgRequestVote:
 		reject := pb.Message{
@@ -548,6 +570,21 @@ func (r *Raft) stepLeader(m pb.Message) {
 		}
 		r.push(reject)
 	}
+}
+
+func (r *Raft) maybeIncrCommitIndex() {
+	matches := make([]uint64, 0, len(r.Prs))
+	for pid, prg := range r.Prs {
+		if pid == r.id {
+			continue
+		}
+		matches = append(matches, prg.Match)
+	}
+	matches = append(matches, r.RaftLog.LastIndex())
+	sort.Sort(sortutil.Uint64Slice(matches))
+	halfIndex := (len(matches) - 1) / 2
+	commitIndex := matches[halfIndex]
+	r.RaftLog.committed = mathutil.MaxUint64(r.RaftLog.committed, commitIndex)
 }
 
 func (r *Raft) clearVotes() {
