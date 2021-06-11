@@ -445,11 +445,18 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here (2A).
 	r.resetElectionTimeout()
+	lastLogIndex := r.RaftLog.LastIndex()
+	lastLogTerm, err := r.RaftLog.Term(lastLogIndex)
+	if err != nil {
+		panic(err)
+	}
 	r.push(pb.Message{
 		MsgType: pb.MessageType_MsgHeartbeatResponse,
 		Term:    r.Term,
 		From:    r.id,
 		To:      m.From,
+		LogTerm: lastLogTerm,
+		Index:   lastLogIndex,
 		Reject:  false,
 	})
 }
@@ -601,6 +608,13 @@ func (r *Raft) stepLeader(m pb.Message) {
 			Reject:  true,
 		}
 		r.push(reject)
+	case pb.MessageType_MsgHeartbeatResponse:
+		if m.Term < r.Term {
+			break
+		}
+		if m.Index < r.RaftLog.LastIndex() {
+			r.sendAppend(m.From)
+		}
 	}
 }
 
