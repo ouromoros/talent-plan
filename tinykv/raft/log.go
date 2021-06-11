@@ -14,7 +14,10 @@
 
 package raft
 
-import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+import (
+	"github.com/cznic/mathutil"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+)
 
 // RaftLog manage the log entries, its struct look like:
 //
@@ -50,13 +53,38 @@ type RaftLog struct {
 	pendingSnapshot *pb.Snapshot
 
 	// Your Data Here (2A).
+	pendingEntries []pb.Entry
 }
 
 // newLog returns log using the given storage. It recovers the log
 // to the state that it just commits and applies the latest snapshot.
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
-	return nil
+	hardState, _, err := storage.InitialState()
+	if err != nil {
+		panic(err)
+	}
+	firstIndex, err := storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	lastIndex, err := storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+	entries, err := storage.Entries(firstIndex, lastIndex+1)
+	if err != nil {
+		panic(err)
+	}
+	log := &RaftLog{
+		storage:        storage,
+		committed:      hardState.Commit,
+		applied:        firstIndex - 1,
+		stabled:        lastIndex,
+		entries:        entries,
+		pendingEntries: make([]pb.Entry, 0),
+	}
+	return log
 }
 
 // We need to compact the log entries in some point of time like
@@ -69,23 +97,120 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	return nil
+	return l.pendingEntries
 }
 
 // nextEnts returns all the committed but not applied entries
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
-	return nil
+	return l.getEntries(l.applied+1, l.committed+1)
 }
 
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return 0
+	if len(l.entries) == 0 {
+		return 0
+	}
+	return l.entries[len(l.entries)-1].Index
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	return 0, nil
+	if i == 0 {
+		return 0, nil
+	}
+	return l.entries[i-l.entries[0].Index].Term, nil
+}
+
+// Used by propose new Entry
+func (l *RaftLog) addEntry(term uint64, data []byte) {
+	newEntry := pb.Entry{
+		Index: l.LastIndex() + 1,
+		Term:  term,
+		Data:  data,
+	}
+	l.entries = append(l.entries, newEntry)
+	l.pendingEntries = append(l.pendingEntries, newEntry)
+}
+
+// Used by follower for appendEntries
+func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex uint64, ents []pb.Entry) bool {
+	if prevIndex > l.LastIndex() {
+		return false
+	}
+	t, err := l.Term(prevIndex)
+	if err != nil {
+		return false
+	}
+	if t != prevTerm {
+		return false
+	}
+	if len(ents) <= 0 {
+		if commitIndex > l.committed {
+			canCommit := mathutil.MinUint64Val(commitIndex, prevIndex+uint64(len(ents)))
+			l.committed = mathutil.MaxUint64(l.committed, canCommit)
+		}
+		return true
+	}
+	changeEnts := findMergeEntries(l.entries, ents)
+	l.pendingEntries = mergeEntries(l.pendingEntries, changeEnts)
+	l.entries = mergeEntries(l.entries, changeEnts)
+	if commitIndex > l.committed {
+		canCommit := mathutil.MinUint64Val(commitIndex, prevIndex+uint64(len(ents)))
+		l.committed = mathutil.MaxUint64(l.committed, canCommit)
+	}
+	return true
+}
+
+func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
+	if startIndex > l.LastIndex() {
+		return []pb.Entry{}
+	}
+	return l.entries[startIndex-l.entries[0].Index : endIndex-l.entries[0].Index]
+}
+
+func findMergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
+	if len(b) == 0 {
+		return a
+	}
+	if len(a) == 0 {
+		return b
+	}
+	bStartIndex := b[0].Index
+	bLastIndex := b[len(b)-1].Index
+	aStartIndex := a[0].Index
+	aLastIndex := a[len(a)-1].Index
+
+	if bStartIndex > aLastIndex+1 {
+		return nil
+	} else if bStartIndex == aLastIndex+1 {
+		return b
+	}
+	checkStartIndex := mathutil.MaxUint64(bStartIndex, aStartIndex)
+	checkLastIndex := mathutil.MinUint64(bLastIndex, aLastIndex)
+	for i := checkStartIndex; i <= checkLastIndex; i++ {
+		if a[i-aStartIndex].Term != b[i-bStartIndex].Term {
+			return b[i-bStartIndex:]
+		}
+	}
+	return b[checkLastIndex-bStartIndex+1:]
+}
+
+func mergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
+	if len(b) == 0 {
+		return a
+	}
+	if len(a) == 0 {
+		return b
+	}
+	bStartIndex := b[0].Index
+	aStartIndex := a[0].Index
+	aLastIndex := a[len(a)-1].Index
+
+	if bStartIndex > aLastIndex+1 {
+		panic("impossible")
+	}
+	return append(a[:bStartIndex-aStartIndex], b...)
 }
