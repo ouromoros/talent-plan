@@ -378,6 +378,8 @@ func (r *Raft) Step(m pb.Message) error {
 			return errors.New("only leader can propose new entry")
 		}
 		r.RaftLog.addEntry(r.Term, m.Entries[0].Data)
+		r.Prs[r.id].Match = r.RaftLog.LastIndex()
+		r.Prs[r.id].Next = r.RaftLog.LastIndex() + 1
 		r.maybeIncrCommitIndex()
 		for pid := range r.Prs {
 			if pid == r.id {
@@ -593,19 +595,21 @@ func (r *Raft) stepLeader(m pb.Message) {
 
 func (r *Raft) maybeIncrCommitIndex() bool {
 	matches := make([]uint64, 0, len(r.Prs))
-	for pid, prg := range r.Prs {
-		if pid == r.id {
-			continue
-		}
+	for _, prg := range r.Prs {
 		matches = append(matches, prg.Match)
 	}
-	matches = append(matches, r.RaftLog.LastIndex())
 	sort.Sort(sortutil.Uint64Slice(matches))
 	halfIndex := (len(matches) - 1) / 2
 	commitIndex := matches[halfIndex]
 	if r.RaftLog.committed < commitIndex {
-		r.RaftLog.committed = commitIndex
-		return true
+		commitTerm, err := r.RaftLog.Term(commitIndex)
+		if err != nil {
+			panic(err)
+		}
+		if commitTerm == r.Term {
+			r.RaftLog.committed = commitIndex
+			return true
+		}
 	}
 	return false
 }
