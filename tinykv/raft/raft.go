@@ -16,7 +16,6 @@ package raft
 
 import (
 	"errors"
-	"github.com/cznic/mathutil"
 	"github.com/cznic/sortutil"
 	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -220,6 +219,7 @@ func (r *Raft) sendAppend(to uint64) bool {
 	appendEntries := make([]*pb.Entry, 0)
 	ents := r.RaftLog.getEntries(nextIndex, r.RaftLog.LastIndex()+1)
 	for _, ent := range ents {
+		ent := ent
 		appendEntries = append(appendEntries, &ent)
 	}
 	appendMsg := pb.Message{
@@ -414,9 +414,15 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		ents = append(ents, *ent)
 	}
 	match := r.RaftLog.appendEntries(m.LogTerm, m.Index, m.Commit, ents)
+	var logTerm uint64
+	if len(m.Entries) > 0 {
+		logTerm = m.Entries[len(m.Entries)-1].Term
+	} else {
+		logTerm = m.LogTerm
+	}
 	msg := pb.Message{
 		MsgType: pb.MessageType_MsgAppendResponse,
-		LogTerm: m.LogTerm,
+		LogTerm: logTerm,
 		Index:   m.Index + uint64(len(m.Entries)),
 		Term:    r.Term,
 		From:    r.id,
@@ -568,7 +574,9 @@ func (r *Raft) stepLeader(m pb.Message) {
 			if r.Prs[m.From].Match < m.Index {
 				r.Prs[m.From].Match = m.Index
 				r.Prs[m.From].Next = m.Index + 1
-				r.maybeIncrCommitIndex()
+				if r.maybeIncrCommitIndex() {
+					r.sendAppends()
+				}
 			}
 		}
 	case pb.MessageType_MsgRequestVote:
@@ -583,7 +591,7 @@ func (r *Raft) stepLeader(m pb.Message) {
 	}
 }
 
-func (r *Raft) maybeIncrCommitIndex() {
+func (r *Raft) maybeIncrCommitIndex() bool {
 	matches := make([]uint64, 0, len(r.Prs))
 	for pid, prg := range r.Prs {
 		if pid == r.id {
@@ -595,7 +603,11 @@ func (r *Raft) maybeIncrCommitIndex() {
 	sort.Sort(sortutil.Uint64Slice(matches))
 	halfIndex := (len(matches) - 1) / 2
 	commitIndex := matches[halfIndex]
-	r.RaftLog.committed = mathutil.MaxUint64(r.RaftLog.committed, commitIndex)
+	if r.RaftLog.committed < commitIndex {
+		r.RaftLog.committed = commitIndex
+		return true
+	}
+	return false
 }
 
 func (r *Raft) clearVotes() {

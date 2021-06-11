@@ -77,11 +77,12 @@ func newLog(storage Storage) *RaftLog {
 		panic(err)
 	}
 	log := &RaftLog{
-		storage:   storage,
-		committed: hardState.Commit,
-		applied:   firstIndex - 1,
-		stabled:   lastIndex,
-		entries:   entries,
+		storage:        storage,
+		committed:      hardState.Commit,
+		applied:        firstIndex - 1,
+		stabled:        lastIndex,
+		entries:        entries,
+		pendingEntries: make([]pb.Entry, 0),
 	}
 	return log
 }
@@ -136,6 +137,9 @@ func (l *RaftLog) addEntry(term uint64, data []byte) {
 
 // Used by follower for appendEntries
 func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex uint64, ents []pb.Entry) bool {
+	if prevIndex > l.LastIndex() {
+		return false
+	}
 	t, err := l.Term(prevIndex)
 	if err != nil {
 		return false
@@ -143,12 +147,13 @@ func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex u
 	if t != prevTerm {
 		return false
 	}
+	l.committed = mathutil.MaxUint64(commitIndex, l.committed)
 	if len(ents) <= 0 {
 		return true
 	}
-	l.pendingEntries = mergeEntries(l.pendingEntries, ents)
-	l.entries = mergeEntries(l.entries, ents)
-	l.committed = mathutil.MaxUint64(commitIndex, l.committed)
+	changeEnts := findMergeEntries(l.entries, ents)
+	l.pendingEntries = mergeEntries(l.pendingEntries, changeEnts)
+	l.entries = mergeEntries(l.entries, changeEnts)
 	return true
 }
 
@@ -159,7 +164,7 @@ func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
 	return l.entries[startIndex-l.entries[0].Index : endIndex-l.entries[0].Index]
 }
 
-func mergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
+func findMergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
 	if len(b) == 0 {
 		return a
 	}
@@ -172,17 +177,33 @@ func mergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
 	aLastIndex := a[len(a)-1].Index
 
 	if bStartIndex > aLastIndex+1 {
-		return a
+		return nil
 	} else if bStartIndex == aLastIndex+1 {
-		return append(a, b...)
+		return b
 	}
 	checkStartIndex := mathutil.MaxUint64(bStartIndex, aStartIndex)
 	checkLastIndex := mathutil.MinUint64(bLastIndex, aLastIndex)
 	for i := checkStartIndex; i <= checkLastIndex; i++ {
 		if a[i-aStartIndex].Term != b[i-bStartIndex].Term {
-			return append(a[:i-aStartIndex], b[i-bStartIndex:]...)
+			return b[i-bStartIndex:]
 		}
 	}
+	return b[checkLastIndex-bStartIndex+1:]
+}
 
-	return append(a, b[checkLastIndex-bStartIndex+1:]...)
+func mergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
+	if len(b) == 0 {
+		return a
+	}
+	if len(a) == 0 {
+		return b
+	}
+	bStartIndex := b[0].Index
+	aStartIndex := a[0].Index
+	aLastIndex := a[len(a)-1].Index
+
+	if bStartIndex > aLastIndex+1 {
+		panic("impossible")
+	}
+	return append(a[:bStartIndex-aStartIndex], b...)
 }
