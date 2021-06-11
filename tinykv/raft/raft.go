@@ -207,18 +207,15 @@ func (r *Raft) sendAppends() {
 		r.sendAppend(pid)
 	}
 }
+
 // sendAppend sends an append RPC with new entries (if any) and the
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	nextIndex := r.Prs[to].Next
 	prevIndex := nextIndex - 1
-	prevTerm := r.Term
-	if nextIndex < r.RaftLog.stabled {
-		var err error
-		prevTerm, err = r.RaftLog.Term(prevIndex)
-		if err != nil {
-			panic(err)
-		}
+	prevTerm, err := r.RaftLog.Term(prevIndex)
+	if err != nil {
+		panic(err)
 	}
 	appendEntries := make([]*pb.Entry, 0)
 	ents := r.RaftLog.getEntries(nextIndex, r.RaftLog.LastIndex()+1)
@@ -235,7 +232,7 @@ func (r *Raft) sendAppend(to uint64) bool {
 		LogTerm: prevTerm,
 		Index:   prevIndex,
 	}
-	r.msgs = append(r.msgs, appendMsg)
+	r.push(appendMsg)
 	return true
 }
 
@@ -287,9 +284,11 @@ func (r *Raft) resetElectionTimeout() {
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
 	r.resetElectionTimeout()
-	r.clearVotes()
+	if term > r.Term {
+		r.clearVotes()
+		r.Term = term
+	}
 	r.State = StateFollower
-	r.Term = term
 	r.Lead = lead
 }
 
@@ -315,11 +314,18 @@ func (r *Raft) sendRequestVotes() {
 		if pid == r.id {
 			continue
 		}
+		lastIndex := r.RaftLog.LastIndex()
+		lastTerm, err := r.RaftLog.Term(lastIndex)
+		if err != nil {
+			panic(err)
+		}
 		r.push(pb.Message{
 			MsgType: pb.MessageType_MsgRequestVote,
 			Term:    r.Term,
 			From:    r.id,
 			To:      pid,
+			LogTerm: lastTerm,
+			Index:   lastIndex,
 		})
 	}
 }
@@ -337,12 +343,12 @@ func (r *Raft) becomeLeader() {
 		r.Prs[pid].Next = 1
 		r.Prs[pid].Match = 0
 	}
-	//r.Step(pb.Message{
-	//	MsgType: pb.MessageType_MsgPropose,
-	//	Entries: []*pb.Entry{
-	//		{Data: nil},
-	//	},
-	//})
+	r.Step(pb.Message{
+		MsgType: pb.MessageType_MsgPropose,
+		Entries: []*pb.Entry{
+			{Data: nil},
+		},
+	})
 }
 
 // Step the entrance of handle message, see `MessageType`

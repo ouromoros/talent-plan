@@ -72,7 +72,7 @@ func newLog(storage Storage) *RaftLog {
 	if err != nil {
 		panic(err)
 	}
-	entries, err := storage.Entries(firstIndex, lastIndex + 1)
+	entries, err := storage.Entries(firstIndex, lastIndex+1)
 	if err != nil {
 		panic(err)
 	}
@@ -127,8 +127,8 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 func (l *RaftLog) addEntry(term uint64, data []byte) {
 	newEntry := pb.Entry{
 		Index: l.LastIndex() + 1,
-		Term: term,
-		Data: data,
+		Term:  term,
+		Data:  data,
 	}
 	l.entries = append(l.entries, newEntry)
 	l.pendingEntries = append(l.pendingEntries, newEntry)
@@ -146,70 +146,43 @@ func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex u
 	if len(ents) <= 0 {
 		return true
 	}
-	mergeEnts := l.getMergeEntries(ents)
-	l.pendingEntries = mergeEntries(l.pendingEntries, mergeEnts)
-	l.entries = mergeEntries(l.entries, mergeEnts)
+	l.pendingEntries = mergeEntries(l.pendingEntries, ents)
+	l.entries = mergeEntries(l.entries, ents)
 	l.committed = mathutil.MaxUint64(commitIndex, l.committed)
 	return true
-}
-
-// Return entries that are to be merged.
-func (l *RaftLog) getMergeEntries(ents []pb.Entry) []pb.Entry {
-	if len(ents) <= 0 {
-		return nil
-	}
-	firstEntIndex := ents[0].Index
-	lastEntIndex := ents[len(ents)-1].Index
-	firstStorageIndex, err := l.storage.FirstIndex()
-	if err != nil {
-		panic(err)
-	}
-	checkFirstIndex := mathutil.MaxUint64(firstEntIndex, firstStorageIndex)
-	checkLastIndex := mathutil.MinUint64(lastEntIndex, l.stabled)
-	for i := checkFirstIndex; i < checkLastIndex; i++ {
-		storageTerm, err := l.storage.Term(i)
-		if err != nil {
-			panic(err)
-		}
-		entTerm := ents[i-firstEntIndex].Index
-		if entTerm != storageTerm {
-			return ents[i-firstEntIndex:]
-		}
-	}
-	return ents[checkLastIndex-firstEntIndex+1:]
 }
 
 func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
 	if startIndex > l.LastIndex() {
 		return []pb.Entry{}
 	}
-	return l.entries[startIndex-l.entries[0].Index:endIndex-l.entries[0].Index]
-
-	stableEntries := make([]pb.Entry, 0)
-	unstableEntries := make([]pb.Entry, 0)
-	var err error
-	l.storage.LastIndex()
-	if startIndex <= l.stabled {
-		stableEntries, err = l.storage.Entries(startIndex, mathutil.MinUint64(endIndex-1, l.stabled)+1)
-		if err != nil {
-			panic(err)
-		}
-	}
-	if len(l.pendingEntries) > 0 {
-		start := mathutil.MaxUint64(l.pendingEntries[0].Index, startIndex)
-		end := mathutil.MinUint64(l.pendingEntries[len(l.pendingEntries)-1].Index+1, endIndex)
-		unstableEntries = l.pendingEntries[start-l.pendingEntries[0].Index : end-l.pendingEntries[0].Index]
-	}
-	return mergeEntries(stableEntries, unstableEntries)
+	return l.entries[startIndex-l.entries[0].Index : endIndex-l.entries[0].Index]
 }
 
-func mergeEntries(stable []pb.Entry, unstable []pb.Entry) []pb.Entry {
-	if len(unstable) == 0 {
-		return stable
+func mergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
+	if len(b) == 0 {
+		return a
 	}
-	if len(stable) == 0 {
-		return unstable
+	if len(a) == 0 {
+		return b
 	}
-	cut := unstable[0].Index - stable[0].Index
-	return append(stable[:cut], unstable...)
+	bStartIndex := b[0].Index
+	bLastIndex := b[len(b)-1].Index
+	aStartIndex := a[0].Index
+	aLastIndex := a[len(a)-1].Index
+
+	if bStartIndex > aLastIndex+1 {
+		return a
+	} else if bStartIndex == aLastIndex+1 {
+		return append(a, b...)
+	}
+	checkStartIndex := mathutil.MaxUint64(bStartIndex, aStartIndex)
+	checkLastIndex := mathutil.MinUint64(bLastIndex, aLastIndex)
+	for i := checkStartIndex; i <= checkLastIndex; i++ {
+		if a[i-aStartIndex].Term != b[i-bStartIndex].Term {
+			return append(a[:i-aStartIndex], b[i-bStartIndex:]...)
+		}
+	}
+
+	return append(a, b[checkLastIndex-bStartIndex+1:]...)
 }
