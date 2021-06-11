@@ -233,7 +233,7 @@ stale log entries:
 	method is called, the node becomes candidate and sends 'MessageType_MsgRequestVote' to peers
 	in cluster to request votes. When passed to the leader or candidate's Step
 	method and the message's Term is lower than leader's or candidate's,
-	'MessageType_MsgRequestVote' will be rejected ('MessageType_MsgRequestVoteResponse' is returned with Reject true).
+	'MessageType_MsgRequestVote' will be rejects ('MessageType_MsgRequestVoteResponse' is returned with Reject true).
 	If leader or candidate receives 'MessageType_MsgRequestVote' with higher term, it will revert
 	back to follower. When 'MessageType_MsgRequestVote' is passed to follower, it votes for the
 	sender only when sender's last term is greater than MessageType_MsgRequestVote's term or

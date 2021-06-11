@@ -126,8 +126,8 @@ type Raft struct {
 	State StateType
 
 	// votes records
-	votes    map[uint64]bool
-	rejected map[uint64]bool
+	votes   map[uint64]bool
+	rejects map[uint64]bool
 
 	// msgs need to send
 	msgs []pb.Message
@@ -185,6 +185,10 @@ func newRaft(c *Config) *Raft {
 	for _, pid := range c.peers {
 		votes[pid] = false
 	}
+	rejects := make(map[uint64]bool)
+	for _, pid := range c.peers {
+		rejects[pid] = false
+	}
 	r := &Raft{
 		id:               c.ID,
 		electionTimeout:  c.ElectionTick,
@@ -195,6 +199,7 @@ func newRaft(c *Config) *Raft {
 		Prs:              prs,
 		votes:            votes,
 		logger:           logger,
+		rejects:          rejects,
 	}
 	return r
 }
@@ -471,6 +476,10 @@ func (r *Raft) stepCandidate(m pb.Message) {
 			break
 		}
 		if m.Reject {
+			r.rejects[m.From] = true
+			if r.countRejects() > r.majorityCount()-1 {
+				r.becomeFollower(r.Term, 0)
+			}
 			break
 		}
 		r.votes[m.From] = true
@@ -621,6 +630,19 @@ func (r *Raft) clearVotes() {
 	for pid := range r.votes {
 		r.votes[pid] = false
 	}
+	for pid := range r.votes {
+		r.rejects[pid] = false
+	}
+}
+
+func (r *Raft) countRejects() int {
+	count := 0
+	for _, b := range r.rejects {
+		if b {
+			count += 1
+		}
+	}
+	return count
 }
 
 func (r *Raft) countVotes() int {
