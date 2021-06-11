@@ -147,13 +147,20 @@ func (l *RaftLog) appendEntries(prevTerm uint64, prevIndex uint64, commitIndex u
 	if t != prevTerm {
 		return false
 	}
-	l.committed = mathutil.MaxUint64(commitIndex, l.committed)
 	if len(ents) <= 0 {
+		if commitIndex > l.committed {
+			canCommit := mathutil.MinUint64Val(commitIndex, prevIndex+uint64(len(ents)))
+			l.committed = mathutil.MaxUint64(l.committed, canCommit)
+		}
 		return true
 	}
 	changeEnts := findMergeEntries(l.entries, ents)
 	l.pendingEntries = mergeEntries(l.pendingEntries, changeEnts)
 	l.entries = mergeEntries(l.entries, changeEnts)
+	if commitIndex > l.committed {
+		canCommit := mathutil.MinUint64Val(commitIndex, prevIndex+uint64(len(ents)))
+		l.committed = mathutil.MaxUint64(l.committed, canCommit)
+	}
 	return true
 }
 

@@ -126,7 +126,8 @@ type Raft struct {
 	State StateType
 
 	// votes records
-	votes map[uint64]bool
+	votes    map[uint64]bool
+	rejected map[uint64]bool
 
 	// msgs need to send
 	msgs []pb.Message
@@ -411,6 +412,7 @@ func (r *Raft) Step(m pb.Message) error {
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
 	r.resetElectionTimeout()
+	r.Lead = m.From
 	ents := make([]pb.Entry, 0, len(m.Entries))
 	for _, ent := range m.Entries {
 		ents = append(ents, *ent)
