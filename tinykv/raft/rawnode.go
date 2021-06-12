@@ -70,12 +70,27 @@ type Ready struct {
 type RawNode struct {
 	Raft *Raft
 	// Your Data Here (2A).
+	prevSoftState SoftState
+	prevHardState pb.HardState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
 	// Your Code Here (2A).
-	return nil, nil
+	r := newRaft(config)
+	n := &RawNode{
+		Raft: r,
+		prevHardState: pb.HardState{
+			Term:   r.Term,
+			Vote:   r.Vote,
+			Commit: r.RaftLog.committed,
+		},
+		prevSoftState: SoftState{
+			Lead:      r.Lead,
+			RaftState: r.State,
+		},
+	}
+	return n, nil
 }
 
 // Tick advances the internal logical clock by a single tick.
@@ -140,15 +155,44 @@ func (rn *RawNode) Step(m pb.Message) error {
 	return ErrStepPeerNotFound
 }
 
+func hardStateEqual(a pb.HardState, b pb.HardState) bool {
+	return a.Commit == b.Commit && a.Vote == b.Vote && a.Term == b.Term
+}
+
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
-	return Ready{}
+	softState := &SoftState{
+		Lead:      rn.Raft.Lead,
+		RaftState: rn.Raft.State,
+	}
+	if *softState == rn.prevSoftState {
+		softState = nil
+	}
+	hardState := pb.HardState{
+		Term:   rn.Raft.Term,
+		Vote:   rn.Raft.Vote,
+		Commit: rn.Raft.RaftLog.committed,
+	}
+	if hardStateEqual(hardState, rn.prevHardState) {
+		hardState = pb.HardState{}
+	}
+	return Ready{
+		SoftState:        softState,
+		HardState:        hardState,
+		Entries:          rn.Raft.RaftLog.unstableEntries(),
+		Snapshot:         pb.Snapshot{},
+		CommittedEntries: rn.Raft.RaftLog.nextEnts(),
+		Messages:         rn.Raft.msgs,
+	}
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
+	if len(rn.Raft.msgs) > 0 {
+		return true
+	}
 	return false
 }
 
@@ -156,6 +200,8 @@ func (rn *RawNode) HasReady() bool {
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
+	rn.Raft.msgs = nil
+	rn.Raft.RaftLog.Advance()
 }
 
 // GetProgress return the the Progress of this node and its peers, if this

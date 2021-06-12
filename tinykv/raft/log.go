@@ -171,6 +171,12 @@ func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
 	return l.entries[startIndex-l.entries[0].Index : endIndex-l.entries[0].Index]
 }
 
+func (l *RaftLog) Advance() {
+	l.stabled = l.LastIndex()
+	l.applied = l.stabled
+	l.pendingEntries = nil
+}
+
 func findMergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
 	if len(b) == 0 {
 		return a
