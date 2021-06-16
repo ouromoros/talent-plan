@@ -364,6 +364,10 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 			return nil, err
 		}
 	}
+	err = ps.Engines.WriteRaft(raftWB)
+	if err != nil {
+		return nil, err
+	}
 	return nil, nil
 }
 
