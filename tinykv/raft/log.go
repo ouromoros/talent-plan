@@ -119,10 +119,7 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	if len(l.entries) == 0 {
-		return l.snapIndex
-	}
-	return l.entries[len(l.entries)-1].Index
+	return l.snapIndex + uint64(len(l.entries))
 }
 
 // Term return the term of the entry in the given index
@@ -181,7 +178,7 @@ func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
 	if startIndex > l.LastIndex() {
 		return []pb.Entry{}
 	}
-	return l.entries[startIndex-l.entries[0].Index : endIndex-l.entries[0].Index]
+	return append([]pb.Entry{}, l.entries[startIndex-l.snapIndex-1:endIndex-l.snapIndex-1]...)
 }
 
 func (l *RaftLog) Advance() {

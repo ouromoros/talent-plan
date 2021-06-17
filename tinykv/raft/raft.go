@@ -226,11 +226,16 @@ func (r *Raft) sendAppend(to uint64) bool {
 	if err != nil {
 		panic(err)
 	}
-	appendEntries := make([]*pb.Entry, 0)
 	ents := r.RaftLog.getEntries(nextIndex, r.RaftLog.LastIndex()+1)
+	appendEntries := make([]*pb.Entry, 0, len(ents))
 	for _, ent := range ents {
 		ent := ent
 		appendEntries = append(appendEntries, &ent)
+	}
+	if len(appendEntries) > 0 {
+		if appendEntries[0].Index != prevIndex+1 {
+			panic("prevIndex and Entries not match")
+		}
 	}
 	appendMsg := pb.Message{
 		MsgType: pb.MessageType_MsgAppend,
@@ -447,6 +452,9 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		r.push(msg)
 	} else {
 		// When reject, set Index to next expected
+		if m.Index == r.RaftLog.snapIndex {
+			panic("fail on snap")
+		}
 		msg := pb.Message{
 			MsgType: pb.MessageType_MsgAppendResponse,
 			Index:   m.Index,
@@ -610,9 +618,15 @@ func (r *Raft) stepLeader(m pb.Message) {
 			break
 		}
 		if m.Reject {
-			r.Prs[m.From].Next = mathutil.MinUint64Val(r.Prs[m.From].Next, m.Index, r.RaftLog.snapIndex+1)
+			if m.Index <= r.RaftLog.snapIndex {
+				log.Panicf("append from snapIndex failed: %v", m)
+			}
+			r.Prs[m.From].Next = mathutil.MinUint64Val(r.Prs[m.From].Next, m.Index)
 		} else {
 			if r.Prs[m.From].Match < m.Index {
+				if m.Index > r.RaftLog.LastIndex() {
+					log.Panicf("matched index larger than lastIndex: %v", m)
+				}
 				r.Prs[m.From].Match = m.Index
 				r.Prs[m.From].Next = m.Index + 1
 				if r.maybeIncrCommitIndex() {

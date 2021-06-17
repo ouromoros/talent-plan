@@ -54,6 +54,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		panic(err)
 	}
 	for _, msg := range ready.Messages {
+		msg := msg
 		err := d.ctx.trans.Send(&rspb.RaftMessage{
 			Message:     &msg,
 			FromPeer:    d.Meta,
