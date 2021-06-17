@@ -171,13 +171,16 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
-	hardState, _, err := c.Storage.InitialState()
+	hardState, confState, err := c.Storage.InitialState()
 	if err != nil {
 		panic(err)
 	}
 	rlog := newLog(c.Storage)
 	logger := log.New()
 	prs := make(map[uint64]*Progress, 0)
+	if c.peers == nil {
+		c.peers = confState.Nodes
+	}
 	for _, pid := range c.peers {
 		prs[pid] = &Progress{}
 	}
@@ -346,8 +349,8 @@ func (r *Raft) becomeLeader() {
 		if pid == r.id {
 			continue
 		}
-		r.Prs[pid].Next = 1
-		r.Prs[pid].Match = 0
+		r.Prs[pid].Next = r.RaftLog.snapIndex + 1
+		r.Prs[pid].Match = r.RaftLog.snapIndex
 	}
 	r.Step(pb.Message{
 		MsgType: pb.MessageType_MsgPropose,

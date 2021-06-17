@@ -2,6 +2,9 @@ package raftstore
 
 import (
 	"fmt"
+	"github.com/Connor1996/badger"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"time"
 
 	"github.com/Connor1996/badger/y"
@@ -43,6 +46,127 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	// Your Code Here (2B).
+	if !d.RaftGroup.HasReady() {
+		return
+	}
+	ready := d.RaftGroup.Ready()
+	_, err := d.peerStorage.SaveReadyState(&ready)
+	if err != nil {
+		panic(err)
+	}
+	for _, msg := range ready.Messages {
+		err := d.ctx.trans.Send(&rspb.RaftMessage{
+			Message:     &msg,
+			FromPeer:    d.Meta,
+			ToPeer:      d.getPeerFromCache(msg.To),
+			RegionId:    d.regionId,
+			RegionEpoch: d.Region().RegionEpoch,
+		})
+		if err != nil {
+			log.Errorf("Send message %v failed with error: %v", msg, err)
+		}
+	}
+	for _, ent := range ready.CommittedEntries {
+		d.processCommittedEntry(ent)
+	}
+	d.RaftGroup.Advance(ready)
+}
+
+func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
+	req := new(raft_cmdpb.RaftCmdRequest)
+	err := req.Unmarshal(ent.Data)
+	if err != nil {
+		log.Panicf("Unmarshal message data failed: %v", ent.Data)
+	}
+
+	wb := &engine_util.WriteBatch{}
+	resp := &raft_cmdpb.RaftCmdResponse{
+		Header: &raft_cmdpb.RaftResponseHeader{
+			Error:       nil,
+			CurrentTerm: d.RaftGroup.Raft.Term,
+		},
+	}
+	var txn *badger.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
+	snap := false
+	for _, r := range req.Requests {
+		switch r.CmdType {
+		case raft_cmdpb.CmdType_Delete:
+			wb.DeleteCF(r.Delete.Cf, r.Delete.Key)
+			rsp := &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Delete,
+				Delete:  &raft_cmdpb.DeleteResponse{},
+			}
+			resp.Responses = append(resp.Responses, rsp)
+		case raft_cmdpb.CmdType_Get:
+			it, err := txn.Get(r.Get.Key)
+			var rsp *raft_cmdpb.Response
+			if err != nil {
+				rsp = &raft_cmdpb.Response{
+					CmdType: raft_cmdpb.CmdType_Get,
+					Get: &raft_cmdpb.GetResponse{
+						Value: nil,
+					},
+				}
+			} else {
+				v, err := it.Value()
+				if err != nil {
+					panic(err)
+				}
+				rsp = &raft_cmdpb.Response{
+					CmdType: raft_cmdpb.CmdType_Get,
+					Get: &raft_cmdpb.GetResponse{
+						Value: v,
+					},
+				}
+			}
+			resp.Responses = append(resp.Responses, rsp)
+		case raft_cmdpb.CmdType_Put:
+			wb.SetCF(r.Put.Cf, r.Put.Key, r.Put.Value)
+			rsp := &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Put,
+				Put:     &raft_cmdpb.PutResponse{},
+			}
+			resp.Responses = append(resp.Responses, rsp)
+		case raft_cmdpb.CmdType_Snap:
+			snap = true
+			rsp := &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Snap,
+				Snap: &raft_cmdpb.SnapResponse{
+					Region: d.Region(),
+				},
+			}
+			resp.Responses = append(resp.Responses, rsp)
+		case raft_cmdpb.CmdType_Invalid:
+			log.Panicf("invalid cmd type: %v", r)
+		}
+	}
+	err = d.peerStorage.Engines.WriteKV(wb)
+	if err != nil {
+		panic(err)
+	}
+
+	if !snap {
+		txn.Discard()
+		txn = nil
+	}
+	pi := d.findProposalIndex(ent.Term, ent.Index)
+	if pi != -1 {
+		proposal := d.proposals[pi]
+		d.proposals = append(d.proposals[:pi], d.proposals[pi+1:]...)
+		proposal.cb.Txn = txn
+		proposal.cb.Done(resp)
+	}
+}
+
+func (d *peerMsgHandler) findProposalIndex(term uint64, index uint64) int {
+	pi := -1
+	for i, proposal := range d.proposals {
+		if proposal.index == index && proposal.term == term {
+			pi = i
+			break
+		}
+	}
+	return pi
 }
 
 func (d *peerMsgHandler) HandleMsg(msg message.Msg) {
@@ -114,6 +238,21 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		return
 	}
 	// Your Code Here (2B).
+	reqData, err := msg.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	err = d.RaftGroup.Propose(reqData)
+	if err != nil {
+		panic(err)
+	}
+	index, term := d.RaftGroup.LastIndexAndTerm()
+	proposal := &proposal{
+		index: index,
+		term:  term,
+		cb:    cb,
+	}
+	d.proposals = append(d.proposals, proposal)
 }
 
 func (d *peerMsgHandler) onTick() {

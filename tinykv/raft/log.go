@@ -54,6 +54,9 @@ type RaftLog struct {
 
 	// Your Data Here (2A).
 	pendingEntries []pb.Entry
+
+	snapIndex uint64
+	snapTerm  uint64
 }
 
 // newLog returns log using the given storage. It recovers the log
@@ -76,13 +79,20 @@ func newLog(storage Storage) *RaftLog {
 	if err != nil {
 		panic(err)
 	}
+	snapIndex := firstIndex - 1
+	snapTerm, err := storage.Term(snapIndex)
+	if err != nil {
+		panic(err)
+	}
 	log := &RaftLog{
 		storage:        storage,
 		committed:      hardState.Commit,
-		applied:        firstIndex - 1,
+		applied:        snapIndex,
 		stabled:        lastIndex,
 		entries:        entries,
 		pendingEntries: make([]pb.Entry, 0),
+		snapIndex:      snapIndex,
+		snapTerm:       snapTerm,
 	}
 	return log
 }
@@ -110,7 +120,7 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
 	if len(l.entries) == 0 {
-		return 0
+		return l.snapIndex
 	}
 	return l.entries[len(l.entries)-1].Index
 }
@@ -118,8 +128,8 @@ func (l *RaftLog) LastIndex() uint64 {
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	if i == 0 {
-		return 0, nil
+	if i == l.snapIndex {
+		return l.snapTerm, nil
 	}
 	return l.entries[i-l.entries[0].Index].Term, nil
 }
@@ -173,7 +183,7 @@ func (l *RaftLog) getEntries(startIndex uint64, endIndex uint64) []pb.Entry {
 
 func (l *RaftLog) Advance() {
 	l.stabled = l.LastIndex()
-	l.applied = l.stabled
+	l.applied = l.committed
 	l.pendingEntries = nil
 }
 
