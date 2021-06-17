@@ -225,7 +225,11 @@ func mergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {
 	aStartIndex := a[0].Index
 	aLastIndex := a[len(a)-1].Index
 
-	if bStartIndex > aLastIndex+1 || bStartIndex < aStartIndex {
+	if bStartIndex < aStartIndex {
+		return b
+	}
+
+	if bStartIndex > aLastIndex+1 {
 		panic("impossible")
 	}
 	return append(a[:bStartIndex-aStartIndex], b...)
