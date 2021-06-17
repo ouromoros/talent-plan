@@ -63,7 +63,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 			RegionEpoch: d.Region().RegionEpoch,
 		})
 		if err != nil {
-			log.Errorf("Send message %v failed with error: %v", msg, err)
+			//log.Errorf("Send message %v failed with error: %v", msg, err)
 		}
 	}
 	for _, ent := range ready.CommittedEntries {
