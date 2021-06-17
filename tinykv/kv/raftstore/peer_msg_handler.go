@@ -2,7 +2,6 @@ package raftstore
 
 import (
 	"fmt"
-	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"time"
@@ -86,9 +85,10 @@ func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
 			CurrentTerm: d.RaftGroup.Raft.Term,
 		},
 	}
-	var txn *badger.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
-	snap := false
+	txn := d.peerStorage.Engines.Kv.NewTransaction(false)
+	isSnap := false
 	for _, r := range req.Requests {
+		//log.Infof("Processing %v", r)
 		switch r.CmdType {
 		case raft_cmdpb.CmdType_Delete:
 			wb.DeleteCF(r.Delete.Cf, r.Delete.Key)
@@ -98,9 +98,10 @@ func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
 			}
 			resp.Responses = append(resp.Responses, rsp)
 		case raft_cmdpb.CmdType_Get:
-			it, err := txn.Get(r.Get.Key)
+			v, err := engine_util.GetCFFromTxn(txn, r.Get.Cf, r.Get.Key)
 			var rsp *raft_cmdpb.Response
 			if err != nil {
+				log.Errorf("Get key %v with error %v", r.Get.Key, err)
 				rsp = &raft_cmdpb.Response{
 					CmdType: raft_cmdpb.CmdType_Get,
 					Get: &raft_cmdpb.GetResponse{
@@ -108,10 +109,6 @@ func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
 					},
 				}
 			} else {
-				v, err := it.Value()
-				if err != nil {
-					panic(err)
-				}
 				rsp = &raft_cmdpb.Response{
 					CmdType: raft_cmdpb.CmdType_Get,
 					Get: &raft_cmdpb.GetResponse{
@@ -128,7 +125,7 @@ func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
 			}
 			resp.Responses = append(resp.Responses, rsp)
 		case raft_cmdpb.CmdType_Snap:
-			snap = true
+			isSnap = true
 			rsp := &raft_cmdpb.Response{
 				CmdType: raft_cmdpb.CmdType_Snap,
 				Snap: &raft_cmdpb.SnapResponse{
@@ -145,7 +142,7 @@ func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
 		panic(err)
 	}
 
-	if !snap {
+	if !isSnap {
 		txn.Discard()
 		txn = nil
 	}

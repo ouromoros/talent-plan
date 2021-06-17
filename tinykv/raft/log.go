@@ -128,10 +128,13 @@ func (l *RaftLog) LastIndex() uint64 {
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
+	if i < l.snapIndex {
+		panic("Index not available")
+	}
 	if i == l.snapIndex {
 		return l.snapTerm, nil
 	}
-	return l.entries[i-l.entries[0].Index].Term, nil
+	return l.entries[i-l.snapIndex-1].Term, nil
 }
 
 // Used by propose new Entry

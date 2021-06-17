@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"github.com/cznic/mathutil"
 	"github.com/cznic/sortutil"
 	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -427,21 +428,36 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	}
 	match := r.RaftLog.appendEntries(m.LogTerm, m.Index, m.Commit, ents)
 	var logTerm uint64
-	if len(m.Entries) > 0 {
-		logTerm = m.Entries[len(m.Entries)-1].Term
+	if match {
+		if len(m.Entries) > 0 {
+			logTerm = m.Entries[len(m.Entries)-1].Term
+		} else {
+			logTerm = m.LogTerm
+		}
+		// When success, set LogTerm and Index to matched
+		msg := pb.Message{
+			MsgType: pb.MessageType_MsgAppendResponse,
+			LogTerm: logTerm,
+			Index:   m.Index + uint64(len(m.Entries)),
+			Term:    r.Term,
+			From:    r.id,
+			To:      m.From,
+			Reject:  false,
+		}
+		r.push(msg)
 	} else {
-		logTerm = m.LogTerm
+		// When reject, set Index to next expected
+		msg := pb.Message{
+			MsgType: pb.MessageType_MsgAppendResponse,
+			Index:   m.Index,
+			LogTerm: m.LogTerm,
+			Term:    r.Term,
+			From:    r.id,
+			To:      m.From,
+			Reject:  true,
+		}
+		r.push(msg)
 	}
-	msg := pb.Message{
-		MsgType: pb.MessageType_MsgAppendResponse,
-		LogTerm: logTerm,
-		Index:   m.Index + uint64(len(m.Entries)),
-		Term:    r.Term,
-		From:    r.id,
-		To:      m.From,
-		Reject:  !match,
-	}
-	r.push(msg)
 }
 
 // handleHeartbeat handle Heartbeat RPC request
@@ -577,6 +593,8 @@ func (r *Raft) stepFollower(m pb.Message) {
 				Term:    r.Term,
 				From:    r.id,
 				To:      m.From,
+				Index:   m.Index,
+				LogTerm: m.LogTerm,
 				Reject:  true,
 			})
 			break
@@ -592,7 +610,7 @@ func (r *Raft) stepLeader(m pb.Message) {
 			break
 		}
 		if m.Reject {
-			r.Prs[m.From].Next -= 1
+			r.Prs[m.From].Next = mathutil.MinUint64Val(r.Prs[m.From].Next, m.Index, r.RaftLog.snapIndex+1)
 		} else {
 			if r.Prs[m.From].Match < m.Index {
 				r.Prs[m.From].Match = m.Index
