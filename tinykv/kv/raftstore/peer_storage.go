@@ -353,18 +353,27 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 	// Hint: you may call `Append()` and `ApplySnapshot()` in this function
 	// Your Code Here (2B/2C).
 	raftWB := &engine_util.WriteBatch{}
-	err := ps.Append(ready.Entries, raftWB)
-	if err != nil {
-		return nil, err
+	stateChanged := false
+	if len(ready.Entries) > 0 {
+		err := ps.Append(ready.Entries, raftWB)
+		if err != nil {
+			return nil, err
+		}
+		ps.raftState.LastIndex = ready.Entries[len(ready.Entries)-1].Index
+		ps.raftState.LastTerm = ready.Entries[len(ready.Entries)-1].Term
+		stateChanged = true
 	}
 	if !ready.EmptyHardState() {
 		*ps.raftState.HardState = ready.HardState
-		err := raftWB.SetMeta(meta.RaftStateKey(ps.region.Id), ps.raftState.HardState)
+		stateChanged = true
+	}
+	if stateChanged {
+		err := raftWB.SetMeta(meta.RaftStateKey(ps.region.Id), ps.raftState)
 		if err != nil {
 			return nil, err
 		}
 	}
-	err = ps.Engines.WriteRaft(raftWB)
+	err := ps.Engines.WriteRaft(raftWB)
 	if err != nil {
 		return nil, err
 	}
