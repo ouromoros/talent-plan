@@ -185,6 +185,20 @@ func (l *RaftLog) Advance() {
 	l.stabled = l.LastIndex()
 	l.applied = l.committed
 	l.pendingEntries = nil
+	l.pendingSnapshot = nil
+}
+
+func (l *RaftLog) ApplySnapshot(snapshot *pb.Snapshot) {
+	index := snapshot.Metadata.Index
+	term := snapshot.Metadata.Term
+	l.snapIndex = index
+	l.committed = index
+	l.stabled = index
+	l.applied = index
+	l.snapTerm = term
+	l.entries = []pb.Entry{}
+	l.pendingEntries = []pb.Entry{}
+	l.pendingSnapshot = snapshot
 }
 
 func findMergeEntries(a []pb.Entry, b []pb.Entry) []pb.Entry {

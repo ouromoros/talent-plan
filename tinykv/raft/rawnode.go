@@ -181,11 +181,15 @@ func (rn *RawNode) Ready() Ready {
 	if hardStateEqual(hardState, rn.prevHardState) {
 		hardState = pb.HardState{}
 	}
+	snapShot := pb.Snapshot{}
+	if pending := rn.Raft.RaftLog.pendingSnapshot; pending != nil {
+		snapShot = *pending
+	}
 	return Ready{
 		SoftState:        softState,
 		HardState:        hardState,
 		Entries:          rn.Raft.RaftLog.unstableEntries(),
-		Snapshot:         pb.Snapshot{},
+		Snapshot:         snapShot,
 		CommittedEntries: rn.Raft.RaftLog.nextEnts(),
 		Messages:         rn.Raft.msgs,
 	}

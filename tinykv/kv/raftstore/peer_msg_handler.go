@@ -2,6 +2,7 @@ package raftstore
 
 import (
 	"fmt"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"time"
@@ -67,18 +68,28 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		}
 	}
 	for _, ent := range ready.CommittedEntries {
-		d.processCommittedEntry(ent)
+		d.processCommittedEntry(d.regionId, ent)
 	}
 	d.RaftGroup.Advance(ready)
 }
 
-func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
+func (d *peerMsgHandler) applySnapshot(snapshot eraftpb.Snapshot) {
+	d.peerStorage.applyState.AppliedIndex = snapshot.Metadata.Index
+	d.peerStorage.snapState.StateType = snap.SnapState_Applying
+
+}
+
+func (d *peerMsgHandler) processCommittedEntry(regionId uint64, ent eraftpb.Entry) {
 	req := new(raft_cmdpb.RaftCmdRequest)
 	err := req.Unmarshal(ent.Data)
 	if err != nil {
 		log.Panicf("Unmarshal message data failed: %v", ent.Data)
 	}
 
+	if req.AdminRequest != nil {
+		d.processAdminRequest(req)
+		return
+	}
 	wb := &engine_util.WriteBatch{}
 	resp := &raft_cmdpb.RaftCmdResponse{
 		Header: &raft_cmdpb.RaftResponseHeader{
@@ -138,6 +149,11 @@ func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
 			log.Panicf("invalid cmd type: %v", r)
 		}
 	}
+	d.peerStorage.applyState.AppliedIndex = ent.Index
+	err = wb.SetMeta(meta.ApplyStateKey(regionId), d.peerStorage.applyState)
+	if err != nil {
+		panic(err)
+	}
 	err = d.peerStorage.Engines.WriteKV(wb)
 	if err != nil {
 		panic(err)
@@ -153,6 +169,24 @@ func (d *peerMsgHandler) processCommittedEntry(ent eraftpb.Entry) {
 		d.proposals = append(d.proposals[:pi], d.proposals[pi+1:]...)
 		proposal.cb.Txn = txn
 		proposal.cb.Done(resp)
+	}
+}
+
+func (d *peerMsgHandler) processAdminRequest(req *raft_cmdpb.RaftCmdRequest) {
+	adminReq := req.AdminRequest
+	switch adminReq.CmdType {
+	case raft_cmdpb.AdminCmdType_CompactLog:
+		d.peerStorage.applyState.TruncatedState = &rspb.RaftTruncatedState{
+			Index: adminReq.CompactLog.CompactIndex,
+			Term:  adminReq.CompactLog.CompactTerm,
+		}
+		err := engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.ApplyStateKey(req.Header.RegionId), d.peerStorage.applyState)
+		if err != nil {
+			panic(err)
+		}
+		d.ScheduleCompactLog(adminReq.CompactLog.CompactIndex)
+	default:
+		log.Panicf("not implemented cmd type: %v", adminReq.CmdType)
 	}
 }
 

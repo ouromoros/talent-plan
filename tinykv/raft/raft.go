@@ -178,20 +178,8 @@ func newRaft(c *Config) *Raft {
 	}
 	rlog := newLog(c.Storage)
 	logger := log.New()
-	prs := make(map[uint64]*Progress, 0)
 	if c.peers == nil {
 		c.peers = confState.Nodes
-	}
-	for _, pid := range c.peers {
-		prs[pid] = &Progress{}
-	}
-	votes := make(map[uint64]bool)
-	for _, pid := range c.peers {
-		votes[pid] = false
-	}
-	rejects := make(map[uint64]bool)
-	for _, pid := range c.peers {
-		rejects[pid] = false
 	}
 	r := &Raft{
 		id:               c.ID,
@@ -200,12 +188,28 @@ func newRaft(c *Config) *Raft {
 		RaftLog:          rlog,
 		Term:             hardState.Term,
 		Vote:             hardState.Vote,
-		Prs:              prs,
-		votes:            votes,
 		logger:           logger,
-		rejects:          rejects,
 	}
+	r.resetPeers(c.peers)
 	return r
+}
+
+func (r *Raft) resetPeers(nodes []uint64) {
+	prs := make(map[uint64]*Progress, 0)
+	for _, pid := range nodes {
+		prs[pid] = &Progress{}
+	}
+	votes := make(map[uint64]bool)
+	for _, pid := range nodes {
+		votes[pid] = false
+	}
+	rejects := make(map[uint64]bool)
+	for _, pid := range nodes {
+		rejects[pid] = false
+	}
+	r.Prs = prs
+	r.votes = votes
+	r.rejects = rejects
 }
 
 func (r *Raft) sendAppends() {
@@ -221,6 +225,10 @@ func (r *Raft) sendAppends() {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	nextIndex := r.Prs[to].Next
+	if nextIndex <= r.RaftLog.snapIndex {
+		r.sendSnapshot(to)
+		return true
+	}
 	prevIndex := nextIndex - 1
 	prevTerm, err := r.RaftLog.Term(prevIndex)
 	if err != nil {
@@ -491,6 +499,32 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 // handleSnapshot handle Snapshot RPC request
 func (r *Raft) handleSnapshot(m pb.Message) {
 	// Your Code Here (2C).
+	r.Lead = m.From
+	if m.Snapshot.Metadata.Index <= r.RaftLog.committed {
+		log.Errorf("No need to apply Snapshot %v", m.Snapshot.Metadata)
+		return
+	}
+
+	r.RaftLog.ApplySnapshot(m.Snapshot)
+	nodes := m.Snapshot.Metadata.ConfState.Nodes
+	r.resetPeers(nodes)
+	// Set Vote to current leader to avoid corner case
+	r.Vote = m.From
+}
+
+func (r *Raft) sendSnapshot(to uint64) {
+	snap, err := r.RaftLog.storage.Snapshot()
+	if err != nil {
+		log.Panicf("Getting Snapshot from storage failed with error: %v", err)
+	}
+	msg := pb.Message{
+		MsgType:  pb.MessageType_MsgSnapshot,
+		Term:     r.Term,
+		From:     r.id,
+		To:       to,
+		Snapshot: &snap,
+	}
+	r.push(msg)
 }
 
 // addNode add a new node to raft group
@@ -608,6 +642,11 @@ func (r *Raft) stepFollower(m pb.Message) {
 			break
 		}
 		r.handleAppendEntries(m)
+	case pb.MessageType_MsgSnapshot:
+		if m.Term < r.Term {
+			break
+		}
+		r.handleSnapshot(m)
 	}
 }
 
@@ -619,7 +658,9 @@ func (r *Raft) stepLeader(m pb.Message) {
 		}
 		if m.Reject {
 			if m.Index <= r.RaftLog.snapIndex {
-				log.Panicf("append from snapIndex failed: %v", m)
+				//log.Panicf("append from snapIndex failed: %v", m)
+				r.sendSnapshot(m.From)
+				break
 			}
 			r.Prs[m.From].Next = mathutil.MinUint64Val(r.Prs[m.From].Next, m.Index)
 		} else {
